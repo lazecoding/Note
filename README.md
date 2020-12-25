@@ -2,4 +2,4 @@
 
 
 ## Java
-- [Java 基础](https://github.com/)
+- [Java 基础](https://github.com/lazecoding/Note/blob/main/note/articles/java/JavaBase.md)
