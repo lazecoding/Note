@@ -1,5 +1,3 @@
-package com.codebase.javaSE.generics.example;
-
 public class Animal {
     private String name;
 

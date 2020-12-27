@@ -1,5 +1,3 @@
-package com.codebase.javaSE.generics.example;
-
 import java.util.ArrayList;
 import java.util.List;
 

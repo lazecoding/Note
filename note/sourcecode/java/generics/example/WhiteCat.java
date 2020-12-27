@@ -1,5 +1,3 @@
-package com.codebase.javaSE.generics.example;
-
 public class WhiteCat extends Cat{
     private String name = "white cat";
 
