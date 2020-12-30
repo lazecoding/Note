@@ -1,6 +1,6 @@
 # InnoDB 存储引擎
 
-### InnoDB 存储引擎概述
+### 概述
 
 InnoDB 存储引擎最早由 Innobase Oy 公司开发，从 MySQL 数据库 5.5.8 版本开始，InnoDB 存储引擎是默认的存储引擎。该存储引擎是第一个完整支持 ACID 事务的 MySQL 存储引擎 （BDB 是第一个支持事务的 MySQL 存储引擎，已停止开发），其特点是行锁设计、支持 MVCC、支持外键、提供一致性非锁定读，同时被设计用来有效利用内存和 CPU。
 
@@ -53,3 +53,31 @@ LRU 列表用来管理已经读取的页，当数据库刚启动时，LRU 列表
 在 LRU 列表中的页被修改，称该页为脏页（dirty page），即缓冲池中的页和磁盘上的页数据不一致。这时候数据库会通过 Checkpoint 机制将脏页刷回磁盘，而 Flush 列表中的页即为脏页。脏页即存在于 LRU 列表中，也存在于 Flush 列表中，LRU 列表中脏页保持缓冲池中页的可用性，Flush 列表中的脏页用来将数据刷回磁盘。
 
 ### Checkpoint 机制
+
+每次写操作会产生脏页，数据库需要将脏页从缓冲池中刷回磁盘。倘若每次修改页都将新页刷回磁盘，这个开销十分大，而且如果热点数据是某几个页，会导致性能很差，同时如果在刷新脏页的时候数据库宕机了，那么数据难以恢复。为了避免这些问题，当前事务数据库往往采用  Write Ahead Log 策略，即当事务提交先写重做日志（redo log），在修改页，即使数据库宕机也可以通过重做日志恢复数据。
+
+通过重做日志，可以实现 ACID 中的持久性，但是如果重做日志不可能无限大，即使是无限大，如果数据库宕机通过重做日志恢复数据耗时会很久，代价很大。因此产生了 Checkpoint （检查点） 机制，目的是：
+- 缩短数据库恢复时间
+- 缓冲池不够用时，刷新脏页
+- 重做日志不可以时，刷新脏页
+
+当数据库宕机，不需要重做所有日志，因为 Checkpoint 之前的页都已经刷新回磁盘，数据库只需要对 Checkpoint 之后的重做日志进行恢复。当缓冲池不够用的时候，根据 LRU 算法会溢出最近最少使用的页，若为脏页则强制执行 Checkpoint 刷新脏页。
+当重做日志不可以使用，也必须强制执行 Checkpoint，将缓冲池中的页至少刷新到当前重做日志的位置。重做日志出现不可以的情况是因为当前事务数据库系统对重做日志的设计是循环使用，并不是无限扩大，数据库可以重用已经不在需要的日志部分。
+
+InnoDB 存储引擎有两种 Checkpoint,分别是 Sharp CheckPoint 和 Fuzzy CheckPoint。Sharp CheckPoint 发生在数据库关闭时将所以脏页刷回磁盘，但如果数据库运行刷时也使用会影响数据库的可用性，故 InnoDB 存储引擎内部
+使用 Fuzzy CheckPoint 进行脏页刷新，即只刷新一部分脏页。
+
+Fuzzy CheckPoint 存在以下几种情况：
+
+`Master Thread CheckPoint` ：Master Thread 中发生的 CheckPoint 约每秒或每十秒从缓冲池脏页中异步刷新一定比例脏页回磁盘，不会阻塞用户线程。
+
+`FLUSH_LRU_LIST CheckPoint` ：InnoDB 1.1.x 版本之前，LRU需要保证拥有 100 个可以空闲页，当空间不够回淘汰列表尾端，如果存在脏页则通过 CheckPoint 刷新脏页。InnoDB 1.2.x 版本开始这个检查由单独的 Page Cleaner Thread 进行。
+
+`Async/Sync Flush CheckPoint` ：当重做日志不可用，强制将一部分页刷回磁盘，InnoDB 1.2.x 版本之前,Async 线程回阻塞发现问题的线程，Sync 线程回阻塞所有用户线程，从1.2.x 版本开始这部分操作页由 Page Cleaner Thread 进行，故不会阻塞用户线程。
+
+`Dirty Page too much CheckPoint` ：当脏页太多的时候，InnoDB 会强制进行 Checkpoint，可以通过 innodb_max_dirty_pages_pct 参数配置容量阈值。
+
+### Master Thread 工作模式
+
+
+### InnoDB 关键特性
