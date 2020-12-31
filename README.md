@@ -11,3 +11,6 @@
 
 ## 读物
 - [提问的智慧](https://github.com/lazecoding/Note/blob/main/doc/提问的智慧.md)
+- [中文文案排版指南](https://github.com/lazecoding/Note/blob/main/doc/中文文案排版指南.md)
+- [On Java 8](https://github.com/LingCoder/OnJava8)
+
