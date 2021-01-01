@@ -1,3 +1,19 @@
 ## MySQL
 - [MySQL概览](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/概览.md)
 - [InnoDB 存储引擎](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/InnoDB.md)
+<!--
+- [表结构](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/表结构.md)
+- [索引](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/索引.md)
+- [日志文件](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/日志文件.md)
+- [事务](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/事务.md)
+- [MVCC](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MVCC.md)
+- [锁](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/锁.md)
+- [备份与恢复](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/备份与恢复.md)
+- [性能调优](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/性能调优.md)
+-->
+
+
+#### 扩展问题
+- [执行流程](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/执行流程.md)
+- [慢SQL分析](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/慢SQL分析.md)
+- [大表优化](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/大表优化.md)
