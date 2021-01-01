@@ -13,7 +13,7 @@ InnoDB 存储引擎最早由 Innobase Oy 公司开发，从 MySQL 数据库 5.5.
 上图简单展示了 InnoDB 存储引擎的体系架构。InnoDB 存储引擎由很多内存块组成一个大的内存池，主要负责如下工作：
 - 维护所有进程/线程需要访问的多个内部数据结构。
 - 缓存磁盘上的数据结构方便快速地读取，同时在对磁盘文件的数据修改之前在这里做缓存。
-- 重做日志（redo log）缓存。
+- 重做日志（redo log）缓冲。
 后台线程主要作用是负责刷新内存池中数据，保证缓冲池的内存缓存的是最近的数据。此外将已修改的数据文件刷新到磁盘文件，同时保证在数据库异常情况 InnoDB 存储引擎能恢复到正常运行状态。
   
 ### 后台线程
@@ -40,7 +40,7 @@ InnoDB 存储引擎是基于磁盘存储的，并将其中的记录按照页的�
     <img src="https://github.com/lazecoding/Note/blob/main/images/mysql/InnoDB内存数据对象.png" width="600px">
 </div>
 
-InnoDB 存储引擎的内存区域除了缓冲池外，还有重做日志缓存（redo log buffer）。InnoDB 存储引擎首先将重做日志放到这个缓冲区，然后按照一定频率将其刷新到重做日志文件。
+InnoDB 存储引擎的内存区域除了缓冲池外，还有重做日志缓冲（redo log buffer）。InnoDB 存储引擎首先将重做日志放到这个缓冲区，然后按照一定频率将其刷新到重做日志文件。
 
 ### LRU 算法
 
@@ -114,5 +114,23 @@ InnoDB 1.0.x 版本还带来了两个个参数 `innodb_adaptive_flushing` 和 `i
 
 `InnoDB 1.2.x 版本` ： InnoDB 1.2.x 版本对 Master Thread 进一步优化，将刷新脏页操作从 Master Thread 线程分离到一个单独的 Page Cleaner Thread 中，从而提高系统并发性。 
 
-
 ### InnoDB 关键特性
+
+InnoDB关键特性包括：
+- 插入缓冲（Insert Buffer）
+- 两次写（Double Write）
+- 自适应哈希索引（Adaptive Hash Index）
+- 异步IO（Async IO）
+- 刷新邻接页（Flush Neighbor Page）
+
+`插入缓冲（Insert Buffer）` ：
+
+
+
+
+`两次写（Double Write）` ：
+`插入缓冲（Insert Buffer）` ：
+`自适应哈希索引（Adaptive Hash Index）` ：
+`异步IO（Async IO）` ：
+`刷新邻接页（Flush Neighbor Page）` ：
+
