@@ -1,8 +1,8 @@
 ## MySQL
 - [MySQL概览](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/概览.md)
 - [InnoDB 存储引擎](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/InnoDB.md)
+- [表](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/表.md)
 <!--
-- [表结构](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/表结构.md)
 - [索引](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/索引.md)
 - [日志文件](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/日志文件.md)
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/事务.md)
