@@ -123,14 +123,33 @@ InnoDB关键特性包括：
 - 异步IO（Async IO）
 - 刷新邻接页（Flush Neighbor Page）
 
-`插入缓冲（Insert Buffer）` ：
+`插入缓冲（Insert Buffer）` ： Insert Buffer 听名字似乎与缓冲池有关，而缓冲池中也有 Insert Buffer 的信息，但插入 Insert Buffer 和数据页一样是物理页的组成部分。
+
+在 InnoDB 存储引擎中，主键是行的唯一表示符，即使没有显式定义主键，InnoDB 存储引擎会为每一行生成一个 6 字节的 ROWID，并以此作为主键。通常应用程序是按照主键自增的顺序插入数据，这样的话插入数据就不需要随机读取另一个页的数据，因此这类情况下插入操作速度非常块。而一张表往往不是只有一个聚集索引的，大多情况下一张表存在多个辅助索引，这样插入操作时候对于辅助索引来说节点的插入不再是顺序的，存在随机读取导致插入性能下降。
+
+InnoDB 存储引擎设计了Insert Buffer，对于辅助索引的插入或更新操作，不是直接插入到索引页，而是先判断插入的辅助索引页是否在缓冲池，如果在则插入；若不在则先放到一个 Insert Buffer 对象中，在以一定频率将 Insert Buffer 和 辅助索引页合并，这样避免了每次操作都产生随机读取页。大大提升了辅助索引插入的性能。要注意的是，InnoDB 存储引擎使用 Insert Buffer 有两个条件：一是索引是辅助索引，而是索引不是唯一的。第一点已经做过说明，第二点是因为如果插入缓冲时候去查询索引页判断唯一性，就势必产生随机读取，从而失去了 Insert Buffer 的意义。
+
+InnoDB 1.0.x 版本引入了 Change Buffer,可以视为 Insert Buffer 的升级，这个版本开始 InnoDB 存储引擎可以对DML操作————INSERT、DELET、UPDATE都进行缓冲，分别是：Insert Buffer、Delete Buffer、Purge Buffer。和 Insert Buffer 一样，Change Buffer 使用的对象依然是非唯一的辅助索引。
 
 
+`两次写（Double Write）` ：Double Write 保证了 InnoDB 存储引擎数据页的可靠性，当数据库宕机时，可能 InnoDB 存储引擎正在写入某个页到表中，而这个页写了一部分之后发生了宕机，这种情况称为部分写失效，InnoDB 存储引擎在重做日志之前，先通过页的副本还原该页，在进行重做，这就是 Double Write。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/mysql/DoubleWrite体系架构.png" width="600px">
+</div>
+
+上图是 InnoDB 存储引擎中 Double Write 体系架构图，由两部分组成：一部分是内存中的 doublewrite buffer,大小为 2 MB，另一部分是物理磁盘上共享表空间中连续的 128 个页，即两个区，大小同样为 2 MB。在对缓冲池的脏页进行刷新的时候，先将脏页复制到内存中的 doublewrite buffer,之后分两次每次 1 M 顺序地写入共享表空间的物理磁盘上，然后马上调用 fsync 函数，同步磁盘，避免缓冲写带来的问题。
+在这个过程中，因为共享表空间中 doublewrite 页是连续的，所以这个过程是顺序写，开销不是很大。完成 doublewrite 页写入后再将 doublewrite buffer 中的页写入各个表空间文件中，最后的写入是离散的。
+
+如果操作系统将页的数据写入磁盘的过程中发生了崩溃，在恢复过程中，InnoDB存储引擎可以从共享表空间中的 doublewrite 中找到该页的副本将其复制到表空间文件中，再应用重做日志。
+
+`自适应哈希索引（Adaptive Hash Index）` ：哈希是一种快速查找方法，一般情况查找的事件复杂的为 O(1)，即一次查找就能定位，而 B+ 树索引的查找次数取决于树高。InnoDB 存储引擎会自动根据表索引页的访问频率和模式自动地为热点页建立哈希索引，称之为自适应哈希索引。
+
+`异步IO（Async IO）` ：为了提高磁盘操作性能，InnoDB 存储引擎采用异步 IO（AIO） 的方式来处理磁盘操作。 AIO 一方面不需要阻塞线程，另一方面 AIO 可以将多个 IO 操作合并成一个 IO 操作，提升 IO 性能。
+
+`刷新邻接页（Flush Neighbor Page）` ：InnoDB 存储引擎在刷新一个脏页时候，会检测该页所在区的所有页。如果是脏页则一起进行刷新，这样做可以提高 AIO 将多个 IO 合并成一个 IO 操作，对于机械磁盘有着显著优势，但如果是固态硬盘建议通过 `innodb_flush_neighbors` 参数关闭此特性。
 
 
-`两次写（Double Write）` ：
-`插入缓冲（Insert Buffer）` ：
-`自适应哈希索引（Adaptive Hash Index）` ：
-`异步IO（Async IO）` ：
-`刷新邻接页（Flush Neighbor Page）` ：
+### 结语
 
+本章对 InnoDB 存储引擎做了分析，基本上我们使用 MySQL 数据库就是使用 InnoDB 存储引擎，了解其体系结构和特性是很有必要的。
