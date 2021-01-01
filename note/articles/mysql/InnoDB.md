@@ -22,7 +22,7 @@ InnoDB存储引擎是多线程的模型，因此后台有多个不同的线程�
 
 `Master Thread` ：Master Thread 是一个非常核心的后台线程，负责将缓冲池中的数据异步刷新到磁盘，保证数据的一致性，包括脏页的刷新，合并插入缓冲，undo 页的回收等
 
-`IO Thread` ：InnoDB 中大量使用 AIO（Async IO）来处理写IO请求，而 IO Thread 主要负责这些 IO 请求的回调（call back）处理。InnoDB 存储引擎拥有四周 IO Thread，分别是 write thread、read thread、insert buffer thread 和 log thread。
+`IO Thread` ：InnoDB 存储引擎大量使用 AIO（Async IO）来处理写IO请求，而 IO Thread 主要负责这些 IO 请求的回调（call back）处理。InnoDB 存储引擎拥有四周 IO Thread，分别是 write thread、read thread、insert buffer thread 和 log thread。
 
 `Purge Thread` ：Purge Thread 用于回收事务提交后不再需要的 undo 页。在 InnoDB 1.1 版本前，purge 操作仅在 Master Thread 中完成。从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
 
@@ -97,7 +97,7 @@ InnoDB 存储引擎主要工作都是由 Master Thread 完成的，随着 InnoDB
 - 删除无用的 undo 页（总是）；
 - 刷新 100 个或者 10 个脏页到磁盘（总是）。
 
-可以看到，即使事务没有提交，InnoDB 存储引擎也会每秒将重做日志缓冲中内容刷到重做日志文件中，这很好地解释了为什么再大地事务提交时间也很短。
+可以看到，即使事务没有提交，InnoDB 存储引擎也会每秒将重做日志缓冲中内容刷到重做日志文件中，这很好地解释了为什么再大的事务提交时间也很短。
 InnoDB 存储引擎会根据最近数据状态来决定是否执行合并插入缓冲、刷新脏页等操作，如果当前没有用户活动会切换到后台循环。
 
 后台循环（backgroup loop）操作：
@@ -109,7 +109,7 @@ InnoDB 存储引擎会根据最近数据状态来决定是否执行合并插入�
 如果刷新循环（flush loop）中也无事可做，InnoDB 存储引擎会切换到暂停循环，挂起 Master Thread 等待事件发生。
 
 `InnoDB 1.2.x 版本之前` ： 在 InnoDB 1.0.x 版本之前，Master Thread 做了大量地刷新脏页、合并缓冲等操作，Master Thread 负载较大。 从 InnoDB 1.0.x 版本开始引入了 `innodb_io_capacity` 参数来控制磁盘 IO 吞吐量，合并插入缓冲和刷新脏页数量会受到 innodb_io_capacity 限制。
-另一个问题， `innodb_max_dirty_oages_pct` 参数在 InnoDB 1.0.x 版本之前默认值是 90，意味着脏页占缓冲池地 90%，从 InnoDB 1.0.x 版本开始这个参数默认值修改为 75，这样即可以加快脏页刷新频率又保证了磁盘负载。
+另一个问题， `innodb_max_dirty_pages_pct` 参数在 InnoDB 1.0.x 版本之前默认值是 90，意味着脏页占缓冲池的 90%，从 InnoDB 1.0.x 版本开始这个参数默认值修改为 75，这样即可以加快脏页刷新频率又保证了磁盘负载。
 InnoDB 1.0.x 版本还带来了两个个参数 `innodb_adaptive_flushing` 和 `innodb_purge_batch_size` ， innodb_adaptive_flushing 影响每秒刷新脏页频率，innodb_purge_batch_size 控制每次 full purge 回收 undo 页的数量。此外，从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
 
 `InnoDB 1.2.x 版本` ： InnoDB 1.2.x 版本对 Master Thread 进一步优化，将刷新脏页操作从 Master Thread 线程分离到一个单独的 Page Cleaner Thread 中，从而提高系统并发性。 
@@ -125,7 +125,7 @@ InnoDB关键特性包括：
 
 `插入缓冲（Insert Buffer）` ： Insert Buffer 听名字似乎与缓冲池有关，而缓冲池中也有 Insert Buffer 的信息，但插入 Insert Buffer 和数据页一样是物理页的组成部分。
 
-在 InnoDB 存储引擎中，主键是行的唯一表示符，即使没有显式定义主键，InnoDB 存储引擎会为每一行生成一个 6 字节的 ROWID，并以此作为主键。通常应用程序是按照主键自增的顺序插入数据，这样的话插入数据就不需要随机读取另一个页的数据，因此这类情况下插入操作速度非常块。而一张表往往不是只有一个聚集索引的，大多情况下一张表存在多个辅助索引，这样插入操作时候对于辅助索引来说节点的插入不再是顺序的，存在随机读取导致插入性能下降。
+在 InnoDB 存储引擎中，主键是行的唯一表示符，即使没有显式定义主键，InnoDB 存储引擎会为每一行生成一个 6 字节的 ROWID，并以此作为主键。通常应用程序是按照主键自增的顺序插入数据，这样的话插入数据就不需要随机读取另一个页的数据，因此这类情况下插入操作速度非常快。而一张表往往不是只有一个聚集索引的，大多情况下一张表存在多个辅助索引，这样插入操作时候对于辅助索引来说节点的插入不再是顺序的，存在随机读取导致插入性能下降。
 
 InnoDB 存储引擎设计了Insert Buffer，对于辅助索引的插入或更新操作，不是直接插入到索引页，而是先判断插入的辅助索引页是否在缓冲池，如果在则插入；若不在则先放到一个 Insert Buffer 对象中，在以一定频率将 Insert Buffer 和 辅助索引页合并，这样避免了每次操作都产生随机读取页。大大提升了辅助索引插入的性能。要注意的是，InnoDB 存储引擎使用 Insert Buffer 有两个条件：一是索引是辅助索引，而是索引不是唯一的。第一点已经做过说明，第二点是因为如果插入缓冲时候去查询索引页判断唯一性，就势必产生随机读取，从而失去了 Insert Buffer 的意义。
 
