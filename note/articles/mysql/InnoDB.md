@@ -138,7 +138,7 @@ InnoDB 1.0.x 版本引入了 Change Buffer,可以视为 Insert Buffer 的升级�
     <img src="https://github.com/lazecoding/Note/blob/main/images/mysql/DoubleWrite体系架构.png" width="600px">
 </div>
 
-上图是 InnoDB 存储引擎中 Double Write 体系架构图，由两部分组成：一部分是内存中的 doublewrite buffer,大小为 2 MB，另一部分是物理磁盘上共享表空间中连续的 128 个页，即两个区，大小同样为 2 MB。在对缓冲池的脏页进行刷新的时候，先将脏页复制到内存中的 doublewrite buffer,之后分两次每次 1 M 顺序地写入共享表空间的物理磁盘上，然后马上调用 fsync 函数，同步磁盘，避免缓冲写带来的问题。
+上图是 InnoDB 存储引擎中 Double Write 体系架构图，由两部分组成：一部分是内存中的 doublewrite buffer,大小为 2MB，另一部分是物理磁盘上共享表空间中连续的 128 个页，即两个区，大小同样为 2MB。在对缓冲池的脏页进行刷新的时候，先将脏页复制到内存中的 doublewrite buffer,之后分两次每次 1MB 顺序地写入共享表空间的物理磁盘上，然后马上调用 fsync 函数，同步磁盘，避免缓冲写带来的问题。
 在这个过程中，因为共享表空间中 doublewrite 页是连续的，所以这个过程是顺序写，开销不是很大。完成 doublewrite 页写入后再将 doublewrite buffer 中的页写入各个表空间文件中，最后的写入是离散的。
 
 如果操作系统将页的数据写入磁盘的过程中发生了崩溃，在恢复过程中，InnoDB存储引擎可以从共享表空间中的 doublewrite 中找到该页的副本将其复制到表空间文件中，再应用重做日志。
