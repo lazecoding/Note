@@ -24,7 +24,7 @@ InnoDB存储引擎是多线程的模型，因此后台有多个不同的线程�
 
 `IO Thread` ：InnoDB 中大量使用 AIO（Async IO）来处理写IO请求，而 IO Thread 主要负责这些 IO 请求的回调（call back）处理。InnoDB 存储引擎拥有四周 IO Thread，分别是 write thread、read thread、insert buffer thread 和 log thread。
 
-`Purge Thread` ：Purge Thread 用于回收事务提交后不再需要的 undo 页。在InnoDB 1.1版本前，purge 操作仅在 Master Thread 中完成。从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
+`Purge Thread` ：Purge Thread 用于回收事务提交后不再需要的 undo 页。在 InnoDB 1.1 版本前，purge 操作仅在 Master Thread 中完成。从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
 
 `Page Cleaner Thread` ：Page Cleaner Thread 是 InnoDB  1.2.x 版本中引入的，作用是将刷新脏页操作放到独立线程处理，减轻 Master Thread 的压力 和 用户查询线程的阻塞，进一步提升 InnoDB 存储引擎的性能。
 
@@ -75,9 +75,44 @@ Fuzzy CheckPoint 存在以下几种情况：
 
 `Async/Sync Flush CheckPoint` ：当重做日志不可用，强制将一部分页刷回磁盘，InnoDB 1.2.x 版本之前,Async 线程回阻塞发现问题的线程，Sync 线程回阻塞所有用户线程，从1.2.x 版本开始这部分操作页由 Page Cleaner Thread 进行，故不会阻塞用户线程。
 
-`Dirty Page too much CheckPoint` ：当脏页太多的时候，InnoDB 会强制进行 Checkpoint，可以通过 innodb_max_dirty_pages_pct 参数配置容量阈值。
+`Dirty Page too much CheckPoint` ：当脏页太多的时候，InnoDB 会强制进行 Checkpoint，可以通过 `innodb_max_dirty_pages_pct` 参数配置容量阈值。
 
 ### Master Thread 工作模式
+
+InnoDB 存储引擎主要工作都是由 Master Thread 完成的，随着 InnoDB 版本迭代， Master Thread 也在持续优化。
+
+`InnoDB 1.0.x 版本之前` ：Master Thread 具有最高的线程优先级别，内部有多个循环（loop）组成，主循环（loop），后台循环（backgroup loop），刷新循环（flush loop），暂停循环（suspend loop），Master Thread 会根据数据库状态在各个循环之间切换。Loop 被称为主循环，大多数操作都由它完成，主要分为两大部分操作————每秒一次操作和每 10 秒一次操作。
+所谓的每秒一次和每 10 秒一次其实也是不准确，只是大概保持这个频率，通过 thread sleep 实现，实际上负载很大情况下可能存在延迟。
+
+每秒一次操作：
+- 日志缓冲刷新到磁盘，即使这个事务还没有提交（总是）；
+- 合并插入缓冲（可能）；
+- 至多刷新 100 个 InnoDB 的缓冲池中的脏页到磁盘（可能）；
+- 如果当前没有用户活动，切换到后台循环（可能）。
+
+每 10 秒一次操作：
+- 刷新 100 个脏页到磁盘（可能）；
+- 合并至少 5 个插入缓冲（总是）；
+- 将日志缓冲刷新到磁盘（总是）；
+- 删除无用的 undo 页（总是）；
+- 刷新 100 个或者 10 个脏页到磁盘（总是）。
+
+可以看到，即使事务没有提交，InnoDB 存储引擎也会每秒将重做日志缓冲中内容刷到重做日志文件中，这很好地解释了为什么再大地事务提交时间也很短。
+InnoDB 存储引擎会根据最近数据状态来决定是否执行合并插入缓冲、刷新脏页等操作，如果当前没有用户活动会切换到后台循环。
+
+后台循环（backgroup loop）操作：
+- 删除无用 undo 页（总是）；
+- 合并 20 个插入缓冲（总是）；
+- 跳回主循环（总是）；
+- 不断刷新 100 个页知道符合条件（可能，跳转到刷新循环中完成）。
+
+如果刷新循环（flush loop）中也无事可做，InnoDB 存储引擎会切换到暂停循环，挂起 Master Thread 等待事件发生。
+
+`InnoDB 1.2.x 版本之前` ： 在 InnoDB 1.0.x 版本之前，Master Thread 做了大量地刷新脏页、合并缓冲等操作，Master Thread 负载较大。 从 InnoDB 1.0.x 版本开始引入了 `innodb_io_capacity` 参数来控制磁盘 IO 吞吐量，合并插入缓冲和刷新脏页数量会受到 innodb_io_capacity 限制。
+另一个问题， `innodb_max_dirty_oages_pct` 参数在 InnoDB 1.0.x 版本之前默认值是 90，意味着脏页占缓冲池地 90%，从 InnoDB 1.0.x 版本开始这个参数默认值修改为 75，这样即可以加快脏页刷新频率又保证了磁盘负载。
+InnoDB 1.0.x 版本还带来了两个个参数 `innodb_adaptive_flushing` 和 `innodb_purge_batch_size` ， innodb_adaptive_flushing 影响每秒刷新脏页频率，innodb_purge_batch_size 控制每次 full purge 回收 undo 页的数量。此外，从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
+
+`InnoDB 1.2.x 版本` ： InnoDB 1.2.x 版本对 Master Thread 进一步优化，将刷新脏页操作从 Master Thread 线程分离到一个单独的 Page Cleaner Thread 中，从而提高系统并发性。 
 
 
 ### InnoDB 关键特性
