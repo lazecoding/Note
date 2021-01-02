@@ -73,6 +73,7 @@ This includes storage overhead, check the manual. You have to change some column
 
 居然报错了，varchar 长度还是 16383，至少加入了一个 char 数据类型。从报错中可以看到的是行记录太大,因为MySQL要求一个行的定义长度不能超过65535。
 
+Demo4:
 ```sql
 CREATE TABLE `len_demo4` (
   `vc_chr` varchar(16128) DEFAULT NULL,
