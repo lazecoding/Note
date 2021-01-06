@@ -125,7 +125,7 @@ SELECT uname FROM user WHERE role_id = (SELECT rid FROM role WHERE rname = '学�
 
 ### partitions
 
-该列显示的为分区表命中的分区情况,非分区表该字段为空（NULL）。
+该列显示分区表命中的分区情况,非分区表该字段为空（NULL）。
 
 ### type
 
@@ -134,7 +134,7 @@ SELECT uname FROM user WHERE role_id = (SELECT rid FROM role WHERE rname = '学�
 - `index`：全索引扫描，和 ALL 类型类似，只不过 ALL 类型是全表扫描，而 index 类型是扫描全部的索引，主要优点是避免了排序，但是开销仍然非常大。如果在 Extra 列看到 Using index，说明正在使用覆盖索引，只扫描索引的数据，它比按索引次序全表扫描的开销要少很多。
 - `range`：范围扫描，就是一个有限制的索引扫描，它开始于索引里的某一点，返回匹配这个值域的行，range 比全索引扫描更高效，因为它不需要遍历全部索引。这个类型通常出现在 =、<>、>、>=、<、<=、IS NULL、<=>、BETWEEN、IN() 的操作中，key 列显示使用了哪个索引，当 type 为该值时，则输出的 ref 列为 NULL，并且 key_len 列是此次查询中使用到的索引最长的那个。
 - `ref`：一种索引访问，也称索引查找，它返回所有匹配某个单个值的行。此类型通常出现在多表的 JOIN 查询, 针对于非唯一或非主键索引, 或者是使用了最左前缀规则索引的查询。
-- `ref_or_null`：ref_or_null 于 ref 类似，但是 MySQL 必须对包含 NULL 值的行进行行额外搜索。
+- `ref_or_null`：ref_or_null 与 ref 类似，但是 MySQL 必须对包含 NULL 值的行进行行额外搜索。
 - `eq_ref`：使用这种索引查找，最多只返回一条符合条件的记录。在使用唯一性索引或主键查找时会出现该值，非常高效。
 - `index_subquery`：index_subquery 替换了以下形式的子查询中的 eq_ref 访问类型，其中 key_column 是非唯一索引。
 ```sql
