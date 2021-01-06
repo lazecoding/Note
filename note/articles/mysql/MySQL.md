@@ -3,8 +3,8 @@
 - [InnoDB 存储引擎](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/InnoDB.md)
 - [表](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/表.md)
 - [索引](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/索引.md)
-<!--
 - [文件](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/文件.md)
+<!--
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/事务.md)
 - [MVCC](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MVCC.md)
 - [锁](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/锁.md)
