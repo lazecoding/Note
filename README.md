@@ -7,7 +7,7 @@
 
 ## 存储系统
 - [MySQL](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MySQL.md)
-- [MySQL](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Redis.md)
+- [Redis](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Redis.md)
 
 
 ## 读物
