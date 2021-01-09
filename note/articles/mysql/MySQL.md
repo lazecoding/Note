@@ -5,8 +5,8 @@
 - [索引](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/索引.md)
 - [文件](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/文件.md)
 - [锁](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/锁.MD)
-<!--
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/事务.md)
+<!--
 - [MVCC](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MVCC.md)
 - [备份与恢复](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/备份与恢复.md)
 - [性能调优](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/性能调优.md)
