@@ -8,5 +8,3 @@
 - [事件驱动](https://github.com/lazecoding/Note/blob/main/note/articles/redis/事件驱动.md)
 - [多机模式](https://github.com/lazecoding/Note/blob/main/note/articles/redis/多机模式.md)
 -->
-
-[]: https://github.com/lazecoding/Note/blob/main/note/articles/redis/存储管理.md
