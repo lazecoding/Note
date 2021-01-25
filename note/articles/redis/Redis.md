@@ -14,6 +14,6 @@
 
 <!--
 ## 扩展
-- [IO模型](https://github.com/lazecoding/Note/blob/main/note/articles/redis/IO模型.md)
 - [Redis 为什么快](https://github.com/lazecoding/Note/blob/main/note/articles/redis/RedisPower.md)
--->
+- [Redis 慢查询](https://github.com/lazecoding/Note/blob/main/note/articles/redis/RedisSlow.md)
+--
