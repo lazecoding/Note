@@ -33,3 +33,28 @@ select() 的机制中提供一种 fd_set 的数据结构，实际上是一个 lo
 #### poll
 
 poll 的机制与 select 类似，与 select 在本质上没有多大差别，管理多个描述符也是进行轮询，根据描述符的状态进行处理，只是 poll 没有最大文件描述符数量的限制。
+
+#### epoll
+
+epoll 在 Linux 2.6 内核正式提出，是基于事件驱动的 I/O 方式，相对于 select 来说，epoll 没有描述符个数限制，使用一个文件描述符管理多个描述符，将用户关心的文件描述符的事件存放到内核的一个事件表中，这样在用户空间和内核空间的 copy 只需一次。
+
+Linux 提供的 epoll 相关函数如下：
+
+```C
+int epoll_create(int size);
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout);
+```
+- epoll_create 函数创建一个epoll 的实例，返回一个表示当前 epoll 实例的文件描述符，后续相关操作都需要传入这个文件描述符。
+- epoll_ctl 函数讲将一个 fd 添加到一个 eventpoll 中，或从中删除，或如果此 fd 已经在 eventpoll 中，可以更改其监控事件。
+- epoll_wait 函数等待 epoll 事件从 epoll 实例中发生（rdlist 中存在或 timeout），并返回事件以及对应文件描述符。
+
+当某一进程调用 epoll_create 函数时，内核会创建一个 eventpoll 结构体，用于存储使用 epoll_ctl 方法向 epoll 对象中添加进来的事件。这些事件都会挂载在红黑树中，如此，重复添加的事件就可以通过红黑树而高效的识别出来(红黑树的插入时间效率是 lgn，其中 n 为树的高度)。所有添加到 epoll 中的事件都会与设备(网卡)驱动程序建立回调关系，也就是说当相应的事件发生时会调用这个回调方法，这个回调方法被叫做 ep_poll_callback，它会将发生的事件添加到 rdlist 双链表中。当调用 epoll_wait 函数检查是否有事件发生时，只需要检查 eventpoll 对象中的 rdlist 双链表中是否有 epitem 元素(每一个事件都对应一个 epitem 结构体)即可。如果 rdlist 不为空，则把发生的事件复制到用户态，同时将事件数量返回给用户。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/epoll数据结构示意图.png" width="600px">
+</div>
+
+对于高频 epoll_wait 的可读就绪的 fd 集合返回的拷贝问题，epoll 通过内核与用户空间 mmap(内存映射)同一块内存来解决。mmap 将用户空间的一块地址和内核空间的一块地址同时映射到相同的一块物理内存地址（不管是用户空间还是内核空间都是虚拟地址，最终要通过地址映射映射到物理地址），使得这块物理内存对内核和对用户均可见，减少用户态和内核态之间的数据交换。
+
+综上，epoll 没有描述符个数限制，所以 epoll 不存在 select  中文件描述符数量限制问题；mmap 解决了 select 中用户态和内核态频繁切换的问题；通过 rdlist 解决了 select  中遍历所有事件的问题。
