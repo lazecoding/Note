@@ -29,3 +29,7 @@ int select(int maxfdp1,fd_set *readset,fd_set *writeset,fd_set *exceptset,const 
 select() 的机制中提供一种 fd_set 的数据结构，实际上是一个 long 类型的数组，每一个数组元素都能与一打开的文件句柄（不管是 Socket 句柄,还是其他文件或命名管道或设备句柄）建立联系，当调用 select() 时，由内核根据 IO 状态修改 fd_set 的内容，由此来通知执行了 select() 的进程哪一 socket 或文件可读写。
 
 使用 select() 最大的优势是可以在一个线程内同时处理多个 socket 的 IO 请求。用户可以注册多个 socket，然后不断地调用 select() 读取被激活的 socket，即可达到在同一个线程内同时处理多个 IO 请求的目的。但 select 存在三个问题：一是为了减少数据拷贝带来的性能损坏，内核对被监控的 fd_set 集合大小做了限制，并且这个是通过宏控制的，大小不可改变(限制为 1024)；二是每次调用 select()，都需要把 fd_set 集合从用户态拷贝到内核态，如果 fd_set 集合很大时，那这个开销很大；三是每次调用 select() 都需要在内核遍历传递进来的所有 fd_set，如果 fd_set 集合很大时，那这个开销也很大。
+
+#### poll
+
+poll 的机制与 select 类似，与 select 在本质上没有多大差别，管理多个描述符也是进行轮询，根据描述符的状态进行处理，只是 poll 没有最大文件描述符数量的限制。
