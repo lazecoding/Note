@@ -14,6 +14,4 @@
 
 ## 扩展
 - [Redis 为什么快](https://github.com/lazecoding/Note/blob/main/note/articles/redis/RedisPower.md)
-<!--
-- [Redis 慢查询](https://github.com/lazecoding/Note/blob/main/note/articles/redis/RedisSlow.md)
---
+- [Redis 怎么慢了](https://github.com/lazecoding/Note/blob/main/note/articles/redis/RedisSlow.md)
