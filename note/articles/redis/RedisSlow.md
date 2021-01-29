@@ -69,6 +69,15 @@ redis-cli -h $host -p $port --bigkeys -i 0.01
 - Redis 实例不要部署在虚拟机上：fork 的耗时也与系统也有关，虚拟机比物理机耗时更久。
 - 降低主从库全量同步的概率：适当调大 repl-backlog-size 参数，避免主从全量同步。
 
+### 开启THP
+
+Linux kernel 在 2.6.38 内核增加了 Transparent Huge Pages (THP) 特性 ，支持大内存页 2MB 分配，默认开启。当开启了 THP 时，fork 的速度会变慢，fork 之后每个内存页从原来 4KB 变为 2MB，会大幅增加重写期间父进程内存消耗。
+
+操作系统提供的 Transparent Huge Pages 特性，其优势是，可以在一定程序上降低应用程序申请内存的次数，但对于 Redis 这种对性能和延迟极其敏感的数据库来说，我们希望 Redis 在每次申请内存时，耗时尽量短，所以不建议在 Redis 机器上开启这个机制。
+
+建议：
+- 关闭 Transparent Huge Pages。
+
 ### 绑定CPU
 
 ### 开启AOF
