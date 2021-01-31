@@ -8,8 +8,11 @@
 - [多机模式](https://github.com/lazecoding/Note/blob/main/note/articles/redis/多机模式.md)
 - [IO模型](https://github.com/lazecoding/Note/blob/main/note/articles/redis/IO模型.md)
 
+## 独立功能
+- [事务](https://github.com/lazecoding/Note/blob/main/note/articles/redis/事务.md)
 
 <!--
+- [Lua 脚本](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Lua脚本.md)
 -->
 
 ## 扩展
