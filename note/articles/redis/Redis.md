@@ -10,9 +10,9 @@
 
 ## 独立功能
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/redis/事务.md)
+- [Lua 脚本](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Lua脚本.md)
 
 <!--
-- [Lua 脚本](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Lua脚本.md)
 -->
 
 ## 扩展
