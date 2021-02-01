@@ -14,10 +14,9 @@
 ## 存储系统
 - [MySQL](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MySQL.md)
 - [Redis](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Redis.md)
-<!--
+
 ## 搜索引擎
 - [Elasticsearch](https://github.com/lazecoding/Note/blob/main/note/articles/es/Elasticsearch.md)
--->
 
 <!--
 ### 计算机
