@@ -92,3 +92,157 @@ public class Example {
 - 运行时间： 要评估算法的性能。首先，要计算各个排序算法在不同的随机输入下的基本操作的次数（包括比较和交换，或者是读写数组的次数）；然后，我们用这些数据来估计算法的相对性能
 - 额外的内存使用： 排序算法的额外内存开销和运行时间是同等重要的。
 - 数据类型： 我们的排序算法模板适用于任何实现了 Comparable 接口的数据类型。
+
+
+### 选择排序
+
+思路：首先找到数组中最小的那个元素，其次将它和数组的第一个元素交换位置。再次，再剩下的元素中找到最小的元素，将它和数组第二个元素交换位置 ... 如此反复。
+
+分析：选择排序的内循环只是比较当前元素与目前已知的最小元素，每次交换都能拍排定一个元素，因此交换的总次数是 N，算法的时间效率取决于比较次数。
+
+对于长度为 N 的数组，选择排序需要大约 N^2/2 次比较和 N 次交换，它有两个鲜明特征：
+- 运行时间和输入无关：无论原数组是否有序，为了找出最小元素都需要扫描一次数组。
+- 数据移动是最少的：每次交换都会排定一个元素。
+
+实现：
+
+```java
+public class Selection {
+
+    /**
+     * selection sort
+     */
+    public static void sort(Comparable[] a) {
+        int length = a.length;
+        for (int i = 0; i < length; i++) {
+            int min = i;
+            for (int j = i + 1; j < length; j++) {
+                if (less(a[j], a[min])) {
+                    min = j;
+                }
+            }
+            exch(a, i, min);
+            assert isSorted(a, 0, i);
+        }
+        assert isSorted(a);
+    }
+
+    /**
+     * use a custom order and Comparator interface
+     */
+    public static void sort(Object[] a, Comparator c) {
+        int length = a.length;
+        for (int i = 0; i < length; i++) {
+            int min = i;
+            for (int j = i + 1; j < length; j++) {
+                if (less(c, a[j], a[min])) {
+                    min = j;
+                }
+            }
+            exch(a, i, min);
+            assert isSorted(a, c, 0, i);
+        }
+        assert isSorted(a, c);
+    }
+
+    /**
+     * is v < w ?
+     */
+    private static boolean less(Comparable v, Comparable w) {
+        return (v.compareTo(w) < 0);
+    }
+
+    /**
+     * is v < w ?
+     */
+    private static boolean less(Comparator c, Object v, Object w) {
+        return (c.compare(v, w) < 0);
+    }
+
+    /**
+     * exchange a[i] and a[j]
+     */
+    private static void exch(Object[] a, int i, int j) {
+        Object swap = a[i];
+        a[i] = a[j];
+        a[j] = swap;
+    }
+
+    /**
+     * is the array a[] sorted ?
+     */
+    private static boolean isSorted(Comparable[] a) {
+        return isSorted(a, 0, a.length - 1);
+    }
+
+    // is the array sorted from a[lo] to a[hi]
+
+    /**
+     * is the array sorted from a[lo] to a[hi]
+     */
+    private static boolean isSorted(Comparable[] a, int lo, int hi) {
+        for (int i = lo + 1; i <= hi; i++) {
+            if (less(a[i], a[i - 1])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * is the array a[] sorted ?
+     */
+    private static boolean isSorted(Object[] a, Comparator c) {
+        return isSorted(a, c, 0, a.length - 1);
+    }
+
+    /**
+     * is the array sorted from a[lo] to a[hi]
+     */
+    private static boolean isSorted(Object[] a, Comparator c, int lo, int hi) {
+        for (int i = lo + 1; i <= hi; i++) {
+            if (less(c, a[i], a[i - 1])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * print array to standard output
+     */
+    private static void show(Comparable[] a) {
+        for (int i = 0; i < a.length; i++) {
+            System.out.println(a[i]);
+        }
+    }
+
+    /**
+     * Test
+     */
+    public static void main(String[] args) {
+        System.out.println("String softed array print:");
+        String[] a = new String[]{"0", "2", "1", "A"};
+        Selection.sort(a);
+        show(a);
+
+        System.out.println("\nInteger softed array print:");
+        Integer[] b = new Integer[]{1, 4, 2, -4};
+        Selection.sort(b);
+        show(b);
+    }
+}
+/* Output:
+String softed array print:
+0
+1
+2
+A
+
+Integer softed array print:
+-4
+1
+2
+4
+*/
+```
