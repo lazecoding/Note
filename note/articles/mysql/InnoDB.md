@@ -129,7 +129,7 @@ InnoDB关键特性包括：
 
 InnoDB 存储引擎设计了Insert Buffer，对于辅助索引的插入或更新操作，不是直接插入到索引页，而是先判断插入的辅助索引页是否在缓冲池，如果在则插入；若不在则先放到一个 Insert Buffer 对象中，在以一定频率将 Insert Buffer 和 辅助索引页合并，这样避免了每次操作都产生随机读取页。大大提升了辅助索引插入的性能。要注意的是，InnoDB 存储引擎使用 Insert Buffer 有两个条件：一是索引是辅助索引，而是索引不是唯一的。第一点已经做过说明，第二点是因为如果插入缓冲时候去查询索引页判断唯一性，就势必产生随机读取，从而失去了 Insert Buffer 的意义。
 
-InnoDB 1.0.x 版本引入了 Change Buffer,可以视为 Insert Buffer 的升级，这个版本开始 InnoDB 存储引擎可以对DML操作————INSERT、DELET、UPDATE都进行缓冲，分别是：Insert Buffer、Delete Buffer、Purge Buffer。和 Insert Buffer 一样，Change Buffer 使用的对象依然是非唯一的辅助索引。
+InnoDB 1.0.x 版本引入了 Change Buffer,可以视为 Insert Buffer 的升级，这个版本开始 InnoDB 存储引擎可以对 DML 操作————INSERT、DELET、UPDATE都进行缓冲，分别是：Insert Buffer、Delete Buffer、Purge Buffer。和 Insert Buffer 一样，Change Buffer 使用的对象依然是非唯一的辅助索引。
 
 
 `两次写（Double Write）` ：Double Write 保证了 InnoDB 存储引擎数据页的可靠性，当数据库宕机时，可能 InnoDB 存储引擎正在写入某个页到表中，而这个页写了一部分之后发生了宕机，这种情况称为部分写失效，InnoDB 存储引擎在重做日志之前，先通过页的副本还原该页，在进行重做，这就是 Double Write。
