@@ -15,7 +15,7 @@
 - [char 和 varchar](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/char和varchar.md)
 - [EXPLAIN 执行计划](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/EXPLAIN.md)
 - [执行流程](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/执行流程.md)
+- [大表优化](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/大表优化.md)
 <!--
 - [慢SQL分析](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/慢SQL分析.md)
-- [大表优化](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/大表优化.md)
 -->
