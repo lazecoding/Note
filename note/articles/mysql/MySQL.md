@@ -6,6 +6,7 @@
 - [文件](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/文件.md)
 - [锁](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/锁.MD)
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/事务.md)
+- [复制](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/复制.md)
 <!--
 - [备份与恢复](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/备份与恢复.md)
 - [性能调优](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/性能调优.md)
@@ -18,4 +19,5 @@
 - [大表优化](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/大表优化.md)
 <!--
 - [慢SQL分析](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/慢SQL分析.md)
+- [临时表](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/临时表.md)
 -->
