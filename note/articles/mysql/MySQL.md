@@ -17,7 +17,7 @@
 - [EXPLAIN 执行计划](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/EXPLAIN.md)
 - [执行流程](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/执行流程.md)
 - [大表优化](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/大表优化.md)
+- [慢 SQL 优化](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/慢SQL.md)
 <!--
-- [慢SQL分析](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/慢SQL分析.md)
 - [临时表](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/临时表.md)
 -->
