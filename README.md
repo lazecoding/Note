@@ -4,9 +4,8 @@
 ## Java
 - [Java 基础](https://github.com/lazecoding/Note/blob/main/note/articles/java/JavaBase.md)
 
-<!--
 - [JVM](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/JVM.md)
--->
+
 <!--
 ## 面向对象
 - [设计模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/设计模式.md)
