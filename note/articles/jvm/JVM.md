@@ -11,9 +11,10 @@
 - [Java内存模型](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/内存模型.md)
 -->
 
-<!--
 ## 扩展
 - [内存溢出和内存泄漏](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/溢出泄漏.md)
+<!--
+- [ZGC](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/ZGC.md)
 -->
 
 
