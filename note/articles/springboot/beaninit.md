@@ -71,7 +71,7 @@ AbstractApplicationContext.java#finishBeanFactoryInitialization 不仅实现了 
 简单的说，循环依赖就是 A 依赖了 B，B 又依赖了 A。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/springboot/循环依赖.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/springboot/循环依赖.png" width="350px">
 </div>
 
 循环依赖分为构造器依赖和属性依赖，Spring 解决了属性的循环依赖（set 注入）。
