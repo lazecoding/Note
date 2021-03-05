@@ -49,8 +49,9 @@
 
 ### 线程的生命周期
 
-我是图-线程生命周期
-
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/线程状态.png" width="600px">
+</div>
 
 由上图可以看出：线程创建之后它将处于 NEW（新建） 状态，调用 start() 方法后开始运行，线程这时候处于 READY（可运行） 状态。可运行状态的线程获得了 CPU 时间片（timeslice）后就处于 RUNNING（运行） 状态。
 
@@ -92,7 +93,9 @@ Linux 相比与其他操作系统（包括其他类 Unix 系统）有很多的�
 
 如下图所示，线程 A 持有资源 2，线程 B 持有资源 1，他们同时都想申请对方的资源，所以这两个线程就会互相等待而进入死锁状态。
 
-我是图：死锁
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/死锁.png" width="600px">
+</div>
 
 产生死锁的 4 个条件必要条件：
 
