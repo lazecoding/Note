@@ -13,6 +13,10 @@
     - [CAS](#CAS)
       - [Atomic 原子类](#Atomic-原子类)
       - [CAS 问题](#CAS-问题)
+  - [源码分析](#源码分析)
+    - [ReentrantLock 源码分析](#ReentrantLock-源码分析)
+    - [ReentrantReadWriteLock 源码分析](#ReentrantReadWriteLock-源码分析)
+
     
 ### 互斥同步
 
@@ -225,3 +229,183 @@ ABA 问题：如果一个变量初次读取的时候是 A 值，它的值被改�
 J.U.C 包提供了一个带有标记的原子引用类 AtomicStampedReference 来解决这个问题，它可以通过控制变量值的版本来保证 CAS 的正确性。
 大部分情况（如：值类型）下 ABA 问题不会影响程序并发的正确性，如果需要解决 ABA 问题，改用传统的互斥同步可能会比原子类更高效。
 
+### 源码分析
+
+#### ReentrantLock 源码分析
+
+类图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ReentrantLock类图.png" width="600px">
+</div>
+
+ReentrantLock 公平锁和非公平锁的实现分别是内部类 FairSync 和 NonfairSync。它们实现了 Lock 接口并继承了 AbstractQueuedSynchronizer 抽象类。Lock 接口规范了 ReentrantLock 的行为，AbstractQueuedSynchronizer 为 Lock 接口的行为提供了实现。
+
+分析 ReentrantLock 的关键在于 AbstractQueuedSynchronizer，简称 AQS，翻译一下是抽象队列同步器。AQS 内部维护了一个 CLH 同步队列和一个用 volatile 关键字修饰的同步状态标识state。
+
+- CLH 同步队列是一个 FIFO （先进先出）双向队列，AQS 依赖它来完成同步状态的管理。在 CLH 同步队列中，一个节点表示一个线程，它保存着线程的引用、状态、前驱节点、后继节点。当前线程如果获取同步状态失败时，AQS 则会将当前线程构造成一个节点（Node）并将其加入到 CLH 同步队列，同时会阻塞当前线程，当同步状态释放时，会把首节点唤醒，使其再次尝试获取同步状态。
+- state 表示 AQS 是否被某个工作线程占用，锁的获取是通过 CAS 算法来保证线程安全的。如果当前线程修改 state 状态成功表示当前线程获取锁成功，并且将所有者线程设置为当前线程，如果修改 state 状态失败了表示当前线程获取锁失败，会将当前线程作为一个节点加入到 CLH 同步队列。
+
+ReentrantLock 提供了公平锁和非公平锁两种实现，它们的区别在于：公平锁会直接加入 CLH 同步队列，如果同步状态队列为空会立即执行；非公平锁会先尝试索取锁，如果获取失败再加入 CLH 同步队列等待锁。
+
+```java
+// fair locks
+final void lock() {
+    acquire(1);
+}
+
+// non-fair locks
+final void lock() {
+    if (compareAndSetState(0, 1))
+        setExclusiveOwnerThread(Thread.currentThread());
+    else
+        acquire(1);
+}
+```
+
+ReentrantLock 提供 acquire 方法封装线程作为节点加入 CLH 同步队列的行为。对于非公平锁，首先它会调用子类的 tryAcquire 方法尝试获取同步资源，如果获取同步资源成功则继续执行，如果获取失败尝试将当前线程封装成节点加入到 CLH 同步队列，然后执行 acquireQueued 方法，用于自旋获取同步资源。
+对于公平锁而言，和非公平锁的区别在于 tryAcquire 方法只有在队列为空的时候才会尝试获取同步资源。acquireQueued 方法中的 parkAndCheckInterrupt 方法用于检验当前线程是否被中断并且清除中断标准，所以当获取锁失败而且当前线程状态标识是中断状态才会调用 selfInterrupt 方法中断线程。
+
+```java
+// AbstractQueuedSynchronizer
+public final void acquire(int arg) {
+    if (!tryAcquire(arg) &&
+        acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+        selfInterrupt();
+}
+
+// FairSync
+protected final boolean tryAcquire(int acquires) {
+    final Thread current = Thread.currentThread();
+    int c = getState();
+    if (c == 0) {
+        if (!hasQueuedPredecessors() &&
+            compareAndSetState(0, acquires)) {
+            setExclusiveOwnerThread(current);
+            return true;
+        }
+    }
+    else if (current == getExclusiveOwnerThread()) {
+        int nextc = c + acquires;
+        if (nextc < 0)
+            throw new Error("Maximum lock count exceeded");
+        setState(nextc);
+        return true;
+    }
+    return false;
+}
+
+
+// NonFairSync
+final boolean nonfairTryAcquire(int acquires) {
+    final Thread current = Thread.currentThread();
+    int c = getState();
+    if (c == 0) {
+        if (compareAndSetState(0, acquires)) {
+            setExclusiveOwnerThread(current);
+            return true;
+        }
+    }
+    else if (current == getExclusiveOwnerThread()) {
+        int nextc = c + acquires;
+        if (nextc < 0) // overflow
+            throw new Error("Maximum lock count exceeded");
+        setState(nextc);
+        return true;
+    }
+    return false;
+}
+```
+
+#### ReentrantReadWriteLock 源码分析
+
+类图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ReentrantReadWriteLock类图.png" width="600px">
+</div>
+
+ReentrantReadWriteLock 将读锁和写锁分离，也提供了公平锁和非公平锁两种实现，实现了 ReadWriteLock 接口，它的两个内部类 WriteLock 和 ReadLock 都是实现了 Lock 接口。
+
+内部类 Sync 中的 tryAcquire 方法是写锁获取的策略方法：如果写锁数量不为 0 或者所有者不是当前线程，获取失败；如果计数器饱和，获取失败；如果试图获取写锁成功就阻塞其他线程并且将当前线程设置成所有者线程。
+
+```java
+protected final boolean tryAcquire(int acquires) {
+    /*
+     * Walkthrough:
+     * 1. If read count nonzero or write count nonzero
+     *    and owner is a different thread, fail.
+     * 2. If count would saturate, fail. (This can only
+     *    happen if count is already nonzero.)
+     * 3. Otherwise, this thread is eligible for lock if
+     *    it is either a reentrant acquire or
+     *    queue policy allows it. If so, update state
+     *    and set owner.
+     */
+    Thread current = Thread.currentThread();
+    int c = getState();
+    int w = exclusiveCount(c);
+    if (c != 0) {
+        // (Note: if c != 0 and w == 0 then shared count != 0)
+        if (w == 0 || current != getExclusiveOwnerThread())
+            return false;
+        if (w + exclusiveCount(acquires) > MAX_COUNT)
+            throw new Error("Maximum lock count exceeded");
+        // Reentrant acquire
+        setState(c + acquires);
+        return true;
+    }
+    if (writerShouldBlock() ||
+        !compareAndSetState(c, c + acquires))
+        return false;
+    setExclusiveOwnerThread(current);
+    return true;
+}
+```
+
+tryAcquireShared 是读锁获取的策略方法：和获取写锁不同，获取读锁通过判断 state 后 16 位，如果有写锁才尝试加入 CLH 同步队列，如果无锁或者只有读锁则获取读锁，并将当前线程设置成所有者线程。
+
+```java
+protected final int tryAcquireShared(int unused) {
+    /*
+     * Walkthrough:
+     * 1. If write lock held by another thread, fail.
+     * 2. Otherwise, this thread is eligible for
+     *    lock wrt state, so ask if it should block
+     *    because of queue policy. If not, try
+     *    to grant by CASing state and updating count.
+     *    Note that step does not check for reentrant
+     *    acquires, which is postponed to full version
+     *    to avoid having to check hold count in
+     *    the more typical non-reentrant case.
+     * 3. If step 2 fails either because thread
+     *    apparently not eligible or CAS fails or count
+     *    saturated, chain to version with full retry loop.
+     */
+    Thread current = Thread.currentThread();
+    int c = getState();
+    if (exclusiveCount(c) != 0 &&
+        getExclusiveOwnerThread() != current)
+        return -1;
+    int r = sharedCount(c);
+    if (!readerShouldBlock() &&
+        r < MAX_COUNT &&
+        compareAndSetState(c, c + SHARED_UNIT)) {
+        if (r == 0) {
+            firstReader = current;
+            firstReaderHoldCount = 1;
+        } else if (firstReader == current) {
+            firstReaderHoldCount++;
+        } else {
+            HoldCounter rh = cachedHoldCounter;
+            if (rh == null || rh.tid != getThreadId(current))
+                cachedHoldCounter = rh = readHolds.get();
+            else if (rh.count == 0)
+                readHolds.set(rh);
+            rh.count++;
+        }
+        return 1;
+    }
+    return fullTryAcquireShared(current);
+}
+```
