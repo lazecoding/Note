@@ -207,6 +207,46 @@ ReentrantLock 也是可重入的，它有一个与锁相关的计数器，如果
 
 对于同步程序，我们希望更少的资源用于锁的管理调度上，让更多的资源服务应用程序。在 JDK 1.5 中，ReentrantLock 带来了比内置锁更好的竞争性能，随着机器线程数量的增加，内置锁性能急剧下降，导致 ReentrantLock 吞吐量最高能达到内置锁吞吐量的 4 倍左右。在 JDK 1.6 中，内置锁改用了与 ReentrantLock 类似的算法，让二者的吞吐量非常接近
 
+而且，ReentrantLock 等待可中断。doAcquireNanos 方法是个循环，不断尝试获取锁，如果超时了就会抛出 InterruptedException 异常，实现中断。
+
+```java
+public boolean tryLock(long timeout, TimeUnit unit)
+        throws InterruptedException {
+    return sync.tryAcquireNanos(1, unit.toNanos(timeout));
+}
+
+private boolean doAcquireNanos(int arg, long nanosTimeout)
+        throws InterruptedException {
+    if (nanosTimeout <= 0L)
+        return false;
+    final long deadline = System.nanoTime() + nanosTimeout;
+    final Node node = addWaiter(Node.EXCLUSIVE);
+    boolean failed = true;
+    try {
+        for (;;) {
+            final Node p = node.predecessor();
+            if (p == head && tryAcquire(arg)) {
+                setHead(node);
+                p.next = null; // help GC
+                failed = false;
+                return true;
+            }
+            nanosTimeout = deadline - System.nanoTime();
+            if (nanosTimeout <= 0L)
+                return false;
+            if (shouldParkAfterFailedAcquire(p, node) &&
+                nanosTimeout > spinForTimeoutThreshold)
+                LockSupport.parkNanos(this, nanosTimeout);
+            if (Thread.interrupted())
+                throw new InterruptedException();
+        }
+    } finally {
+        if (failed)
+            cancelAcquire(node);
+    }
+}
+```
+
 ##### ReentrantReadWriteLock
 
 ReentrantLock 实现了一种标准的互斥锁，但对于维护数据完整性来说，互斥是一种过于强硬的加锁规则，降低了并发能力。对于数据来说，读操作不会改变数据，多个线程同时读取同一块数据不会带来线程安全问题，自然而然地想到将读锁和写锁分离。ReadWriteLock 是读写锁的接口，它暴露了两个对象，一个用于读操作，一个用于写操作。
