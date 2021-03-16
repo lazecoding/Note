@@ -86,12 +86,16 @@ ThreadLocal 可以提供线程局部变量，每个线程 Thread 拥有一份自
 ThreadLocal 类图：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/ThreadLoacl类图.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ThreadLoacl类图.png" width="400px">
 </div>
 
 ThreadLocal 包含一个内部类 ThreadLocalMap，ThreadLocalMap 用于存储元素，每个元素都对应这一个内部类 Entry，这是一个弱引用。弱引用是一旦发生 GC 就会被回收。
 
 ThreadLocalMap 和 HashMap 并不类似，ThreadLocalMap 有自己的独立实现，它是通过数组实现的。可以简单地将它的 key 视作 ThreadLocal，value 为代码中放入的值（实际上 key 并不是 ThreadLocal 本身，而是它的一个弱引用）。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ThreadLocalMap结构.png" width="400px">
+</div>
 
 ```java
 static class Entry extends WeakReference<ThreadLocal<?>> {
@@ -116,3 +120,4 @@ public class Thread implements Runnable {
     // ...
 }
 ```
+
