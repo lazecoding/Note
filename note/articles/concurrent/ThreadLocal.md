@@ -86,7 +86,7 @@ ThreadLocal 可以提供线程局部变量，每个线程 Thread 拥有一份自
 ThreadLocal 类图：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ThreadLoacl类图.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ThreadLoacl类图.png" width="600px">
 </div>
 
 ThreadLocal 包含一个内部类 ThreadLocalMap，ThreadLocalMap 用于存储元素，每个元素都对应这一个内部类 Entry，这是一个弱引用。弱引用是一旦发生 GC 就会被回收。
@@ -94,7 +94,7 @@ ThreadLocal 包含一个内部类 ThreadLocalMap，ThreadLocalMap 用于存储�
 ThreadLocalMap 和 HashMap 并不类似，ThreadLocalMap 有自己的独立实现，它是通过数组实现的。可以简单地将它的 key 视作 ThreadLocal，value 为代码中放入的值（实际上 key 并不是 ThreadLocal 本身，而是它的一个弱引用）。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ThreadLocalMap结构.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/concurrent/ThreadLocalMap结构.png" width="600px">
 </div>
 
 ```java
@@ -121,3 +121,51 @@ public class Thread implements Runnable {
 }
 ```
 
+### 源码分析
+
+#### set
+
+ThreadLocal 中的 set 方法原理如上图所示，很简单，主要是判断 ThreadLocalMap 是否存在，然后使用 ThreadLocal 中的 set 方法进行数据处理。
+
+```java
+public void set(T value) {
+    Thread t = Thread.currentThread();
+    ThreadLocalMap map = getMap(t);
+    if (map != null)
+        map.set(this, value);
+    else
+        createMap(t, value);
+}
+
+
+private void set(ThreadLocal<?> key, Object value) {
+    Entry[] tab = table;
+    int len = tab.length;
+    int i = key.threadLocalHashCode & (len-1);
+
+    for (Entry e = tab[i];
+         e != null;
+         e = tab[i = nextIndex(i, len)]) {
+        ThreadLocal<?> k = e.get();
+
+        if (k == key) {
+            e.value = value;
+            return;
+        }
+
+        if (k == null) {
+            replaceStaleEntry(key, value, i);
+            return;
+        }
+    }
+
+    tab[i] = new Entry(key, value);
+    int sz = ++size;
+    if (!cleanSomeSlots(i, sz) && sz >= threshold)
+        rehash();
+}
+
+void createMap(Thread t, T firstValue) {
+    t.threadLocals = new ThreadLocalMap(this, firstValue);
+}
+```

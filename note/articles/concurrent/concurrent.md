@@ -9,6 +9,8 @@
 
 ## 扩展
 - [AQS](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/AQS.md)
+- [ThreadLocal](https://github.com/Snailclimb/JavaGuide/blob/master/docs/java/multi-thread/万字详解ThreadLocal关键字.md)
 <!--
 - [ThreadLocal](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/ThreadLocal.md)
 -->
+
