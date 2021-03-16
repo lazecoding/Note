@@ -6,7 +6,9 @@
 - [锁](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/lock.md)
 - [线程池](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/threadpool.md)
 
-<!--
+
 ## 扩展
 - [AQS](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/AQS.md)
+<!--
+- [ThreadLocal](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/ThreadLocal.md)
 -->
