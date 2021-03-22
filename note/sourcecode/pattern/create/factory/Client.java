@@ -7,8 +7,8 @@ package com.codebase.pattern.create.factory;
  */
 public class Client {
     public static void main(String[] args) {
-        Factory creator = new ConcreteFactory();
-        Product product = creator.createProduct(ConcreteProduct1.class);
+        Factory factory = new ConcreteFactory();
+        Product product = factory.createProduct(ConcreteProduct1.class);
         System.out.println(product);
         /*
          * 继续业务处理
