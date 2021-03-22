@@ -5,7 +5,7 @@ package com.codebase.pattern.create.factory;
  * @date: 2021/3/21 21:13
  * @description:
  */
-public class ConcreteCreator extends Creator {
+public class ConcreteFactory extends Factory {
     @Override
     public <T extends Product> T createProduct(Class<T> c) {
         Product product = null;
