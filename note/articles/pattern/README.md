@@ -6,3 +6,4 @@
 ### 创建型
 
 - [单例模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/单例.md)
+- [工厂方法模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/工厂方法.md)
