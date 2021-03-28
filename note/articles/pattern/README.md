@@ -14,3 +14,8 @@
 ### 行为型
 
 - [模板方法模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/模板方法.md)
+
+### 结构性
+
+- [代理模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/代理.md)
+
