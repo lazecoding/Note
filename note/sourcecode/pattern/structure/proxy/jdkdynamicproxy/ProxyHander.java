@@ -28,7 +28,7 @@ public class ProxyHander implements InvocationHandler {
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         Object result = method.invoke(this.target, args);
         if (method.getName().equals("doThing")) {
-            System.out.println("ProxyHander doThing ...");
+            System.out.println("ProxyHander do other things ...");
         }
         return result;
     }
