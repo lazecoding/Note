@@ -10,11 +10,8 @@
 ## 框架
 - [Spring Boot](https://github.com/lazecoding/Note/blob/main/note/articles/springboot/SpringBoot.md)
 
-
-<!--
 ## 面向对象
-- [设计模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/设计模式.md)
--->
+- [设计模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/README.md)
 
 <!--
 ## 数据结构和算法
