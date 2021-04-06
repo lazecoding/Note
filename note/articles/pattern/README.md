@@ -21,4 +21,5 @@
 ### 结构性
 
 - [代理模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/代理.md)
+- [装饰器模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/装饰器.md)
 
