@@ -17,6 +17,7 @@
 - [中介者模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/中介者.md)
 - [命令模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/命令.md)
 - [责任链模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/责任链.md)
+- [策略模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/策略.md)
 
 ### 结构性
 
