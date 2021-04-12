@@ -18,6 +18,7 @@
 - [命令模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/命令.md)
 - [责任链模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/责任链.md)
 - [策略模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/策略.md)
+- [迭代器模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/迭代器.md)
 
 ### 结构性
 
