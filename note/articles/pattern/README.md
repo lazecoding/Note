@@ -25,4 +25,5 @@
 - [代理模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/代理.md)
 - [装饰器模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/装饰器.md)
 - [适配器模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/适配器.md)
+- [组合模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/组合.md)
 
