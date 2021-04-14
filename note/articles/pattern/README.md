@@ -19,6 +19,7 @@
 - [责任链模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/责任链.md)
 - [策略模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/策略.md)
 - [迭代器模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/迭代器.md)
+- [观察者模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/观察者.md)
 
 ### 结构性
 
