@@ -33,4 +33,5 @@
 - [组合模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/组合.md)
 - [外观模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/外观.md)
 - [享元模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/享元.md)
+- [桥接模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/桥接.md)
 
