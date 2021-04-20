@@ -5,7 +5,7 @@
     - [重要指标](#重要指标)
     - [选择排序](#选择排序)
     - [插入排序](#插入排序)
-    - [选择排序和插入排序对比](#选择排序和插入排序对比)
+    - [希尔排序](#希尔排序)
 
 
 排序就是将一组对象按照某种逻辑重新排列的过程。
@@ -343,4 +343,108 @@ public class Insertion {
 }
 ```
 
-### 选择排序和插入排序对比
+### 希尔排序
+
+插入排序对于大规模乱序数组插入排序很慢，因为它只会交换相邻的元素，元素只能一点一点从数组的一端移动到另一端。
+
+希尔排序是一种基于插入排序的快速排序算法，交换不相邻的元素以对数组的局部进行排序，并最终用插入排序将局部有序的数组排序。
+
+思想：希尔排序的思想是使数组中任意间隔为 h 的元素都是有序的，这样的数组被称为 `h 有序数组`。即一个 `h 有序数组`就是 h 个互相独立的有序数组编织在一起组成一个数组。在进行排序时，如果 h 很大，就能将元素移动到很远的地方，为实现更小的h有序创造方便。
+用这种方式，对任意以 1 结尾的 h 序列，都能将数组排序，这就是希尔排序。(注意：此处的 h 有序，不是指连续 h 个元素有序，而是每间隔 h 个元素有序)
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/希尔排序_h有序数组.png" width="600px">
+</div>
+
+实现希尔排序是对于每个 h，用插入排序将 h 个子数组独立地排序。但因为子数组是相互独立的，一个更简单的方法是在h子数组中将每个元素交换到比它大的元素之前去。只需要在插入排序的代码中将移动元素的距离从 1 改为 h 即可。这样，希尔排序的实现就转化为了一个类似插入排序但使用不同增量的过程。
+随着排序循环进行，h 不断缩小，直到 h 小于 1 时，排序完毕。
+
+实现：
+
+示例中 h 等于 length / 3 开始递减至 1。
+
+```java
+public class Shell {
+    /**
+     * 排序实现
+     *
+     * @param a 待排序数组
+     */
+    public static void sort(Comparable[] a) {
+        int length = a.length;
+        int h = 1;
+        while (h < length / 3) {
+            h = 3 * h + 1;
+        }
+        while (h >= 1) {
+            for (int i = h; i < length; i++) {
+                for (int j = i; (j >= h) && less(a[j], a[j - h]); j -= h) {
+                    exch(a, j, j - h);
+                }
+            }
+            h = h / 3;
+        }
+    }
+
+    /**
+     * 比较两个元素的大小
+     *
+     * @param comparableA 待比较元素A
+     * @param comparableB 待比较元素B
+     * @return 若 A < B,返回 true,否则返回 false
+     */
+    private static boolean less(Comparable comparableA, Comparable comparableB) {
+        return comparableA.compareTo(comparableB) < 0;
+    }
+
+    /**
+     * 将两个元素交换位置
+     *
+     * @param arr    待交换元素所在的数组
+     * @param indexI 第一个元素索引
+     * @param indexJ 第二个元素索引
+     */
+    private static void exch(Comparable[] arr, int indexI, int indexJ) {
+        Comparable temp = arr[indexI];
+        arr[indexI] = arr[indexJ];
+        arr[indexJ] = temp;
+    }
+
+    /**
+     * 打印数组的内容
+     *
+     * @param arr 待打印的数组
+     */
+    private static void show(Comparable[] arr) {
+        for (int index = 0; index < arr.length; index++) {
+            System.out.print(arr[index] + " ");
+        }
+        System.out.println();
+    }
+
+    /**
+     * 判断数组是否有序
+     *
+     * @param arr 待判断数组
+     * @return 若数组有序，返回 true，否则返回 false
+     */
+    public static boolean isSort(Comparable[] arr) {
+        for (int index = 1; index < arr.length; index++) {
+            if (less(arr[index], arr[index - 1])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static void main(String[] args) {
+        Integer[] arr = new Integer[]{1, 6, 3, 4, 5};
+        sort(arr);
+        // 编译器默认不适用 assert 检测（但是junit测试中适用），所以要使用时要添加参数虚拟机启动参数 -ea 具体添加过程
+        assert isSort(arr);
+        show(arr);
+    }
+}
+```
+
+希尔排序更高效的原因是它权衡了子数组的规模和有序性。排序之初，每个子数组都很短，排序之后子数组都是部分有序的，这两种情况都很适合插入排序。
