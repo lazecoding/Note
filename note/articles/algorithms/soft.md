@@ -354,7 +354,7 @@ public class Insertion {
 用这种方式，对任意以 1 结尾的 h 序列，都能将数组排序，这就是希尔排序。(注意：此处的 h 有序，不是指连续 h 个元素有序，而是每间隔 h 个元素有序)
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/希尔排序_h有序数组.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/algorithms/希尔排序_h有序数组.png" width="600px">
 </div>
 
 实现希尔排序是对于每个 h，用插入排序将 h 个子数组独立地排序。但因为子数组是相互独立的，一个更简单的方法是在h子数组中将每个元素交换到比它大的元素之前去。只需要在插入排序的代码中将移动元素的距离从 1 改为 h 即可。这样，希尔排序的实现就转化为了一个类似插入排序但使用不同增量的过程。
