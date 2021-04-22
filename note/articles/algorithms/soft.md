@@ -7,6 +7,7 @@
     - [插入排序](#插入排序)
     - [希尔排序](#希尔排序)
     - [归并排序](#归并排序)
+    - [快速排序](#快速排序)
 
 
 排序就是将一组对象按照某种逻辑重新排列的过程。
@@ -643,3 +644,134 @@ public static void sort(Comparable[] a) {
 }
 ```
 
+### 快速排序
+
+快速排序是一种分治的排序算法。它将一个数组分成两个子数组，将两部分独立地排序。
+
+快速排序和归并排序是互补的：归并排序将数组分成两个子数组分别排序，并将有序的子数组归并以将整个数组排序；而快速排序则是当两个子数组都有序时整个数组也就自然有序了。
+第一种情况中，递归调用发生在处理整个数组之前；在第二种情况中，递归调用发生在处理整个数组之后。在归并排序中，一个数组被等分为两半；在快速排序中，切分的位置取决于数组的内容。快速排序的大致过程如下图所示。
+
+快速排序示意图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/algorithms/快速排序示意图.png" width="600px">
+</div>
+
+快速排序递归地对子数组排序，选取一个标准值（第一个索引），小于等于标准值地在左面，大于标准值地在右面。
+
+实现：
+
+```java
+public class Quick {
+  /**
+   * 排序实现
+   *
+   * @param a 待排序数组
+   */
+  public static void sort(Comparable[] a) {
+    sort(a, 0, a.length - 1);
+  }
+
+  /**
+   * 排序
+   */
+  private static void sort(Comparable[] a, int low, int high) {
+    if (high <= low) {
+      return;
+    }
+    // 切分数组并返回分割点索引
+    int j = partition(a, low, high);
+    // 将左半部分 a[low..j-1] 排序
+    sort(a, low, j - 1);
+    // 将右半部分 a[j+1..high] 排序
+    sort(a, j + 1, high);
+  }
+
+  /**
+   * 将数组切分为 a[low..j-1]，a[i]，a[j+1..high]
+   */
+  private static int partition(Comparable[] a, int low, int high) {
+    int i = low, j = high;
+    // 第一个元素为标准数
+    Comparable stard = a[low];
+    while (i < j) {
+      // 比 stard 小的在左面，比 stard 大的在右面
+      while (i < j && stard.compareTo(a[j]) <= 0) {
+        j--;
+      }
+      a[i] = a[j];
+      while (i < j && a[j].compareTo(stard) <= 0) {
+        i++;
+      }
+      a[j] = a[i];
+    }
+    // 此时 i = j，数组切分完毕
+    a[i] = stard;
+    return j;
+  }
+
+  /**
+   * 比较两个元素的大小
+   *
+   * @param comparableA 待比较元素A
+   * @param comparableB 待比较元素B
+   * @return 若 A < B,返回 true,否则返回 false
+   */
+  private static boolean less(Comparable comparableA, Comparable comparableB) {
+    return comparableA.compareTo(comparableB) < 0;
+  }
+
+  /**
+   * 将两个元素交换位置
+   *
+   * @param arr    待交换元素所在的数组
+   * @param indexI 第一个元素索引
+   * @param indexJ 第二个元素索引
+   */
+  private static void exch(Comparable[] arr, int indexI, int indexJ) {
+    System.out.println(indexI + "  " + indexJ);
+    Comparable temp = arr[indexI];
+    arr[indexI] = arr[indexJ];
+    arr[indexJ] = temp;
+  }
+
+  /**
+   * 打印数组的内容
+   *
+   * @param arr 待打印的数组
+   */
+  private static void show(Comparable[] arr) {
+    for (int index = 0; index < arr.length; index++) {
+      System.out.print(arr[index] + " ");
+    }
+    System.out.println();
+  }
+
+  /**
+   * 判断数组是否有序
+   *
+   * @param arr 待判断数组
+   * @return 若数组有序，返回 true，否则返回 false
+   */
+  public static boolean isSort(Comparable[] arr) {
+    for (int index = 1; index < arr.length; index++) {
+      if (less(arr[index], arr[index - 1])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public static void main(String[] args) {
+    Integer[] arr = new Integer[]{2, 1, 6, 2, 3, 4, 5};
+    sort(arr);
+    // 编译器默认不适用 assert 检测（但是junit测试中适用），所以要使用时要添加参数虚拟机启动参数 -ea 具体添加过程
+    assert isSort(arr);
+    show(arr);
+  }
+}
+```
+
+快速排序切分方法的内循环会用一个递增的索引将数组元素和一个定值比较。这种简洁性也是快速排序的一个优点，很难想象排序算法中还能有比这更短小的内循环了。
+
+快速排序另一个速度优势在于它的比较次数很少。排序效率最终还是依赖切分数组的效果，而这依赖于切分元素的值。切分将一个较大的随机数组分成两个随机子数组，而实际上这种分割可能发生在数组的任意位置（对于元素不重复的数组而言）。
