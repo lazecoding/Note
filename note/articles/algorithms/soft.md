@@ -777,3 +777,177 @@ public class Quick {
 快速排序切分方法的内循环会用一个递增的索引将数组元素和一个定值比较。这种简洁性也是快速排序的一个优点，很难想象排序算法中还能有比这更短小的内循环了。
 
 快速排序另一个速度优势在于它的比较次数很少。排序效率最终还是依赖切分数组的效果，而这依赖于切分元素的值。切分将一个较大的随机数组分成两个随机子数组，而实际上这种分割可能发生在数组的任意位置（对于元素不重复的数组而言）。
+
+### 堆
+
+堆是一颗完全二叉树,除了最底层之外其他层结点都是满的。当一个堆每个节点都大于等于它的两个子节点，称为堆有序。
+
+大部分情况下我们使用指针来表示二叉树，但是对于完全二叉树表示就非常方便。完全二叉树只用数组，将二叉树的节点按层级顺序放入数组，根节点位置在 1（0 索引不用），它的子节点位置是 2 和 3，而子节点的子节点分别是 4、5 和 6、7，以此类推。
+即某节点索引的 N，左子节点索引为 2N ，右子节点为 2N +1，父节点索引为 N/2。
+
+#### 堆实现
+
+我们用私有数组 pd[] 来表示大小为 N 的堆。堆操作首先会对堆有序化，
+
+堆的有序化存在两种情况：一是某个节点上浮（或加入新元素），二是某个节点下沉（或删除元素）。
+
+上浮：
+
+```java
+// 上浮第 k 个元素，以维护最大堆性值
+private void swim(int k) {
+    while (k > 1 && less(k / 2, k)) {
+        exch(k / 2, k);
+        k = k / 2;
+    }
+}
+```
+
+下沉：
+
+```java
+// 下沉第 k 个元素，以维护最大堆性值
+private void sink(int k) {
+    while (2 * k <= N) {
+        int j = 2 * k;
+        if (j < N && less(j, j + 1)) {
+            j++;
+        }
+        if (!less(k, j)) {
+            break;
+        }
+        exch(k, j);
+        k = j;
+    }
+}
+```
+
+堆的上浮和下沉为插入元素和删除元素提供了支持。
+
+- 插入元素：将新元素加到数组末尾，增加堆的大小并让这个新元素上浮到合适的位置。
+- 删除最大元素：从数组顶端（即 pq[1]）删除最大元素，并将数组最后一个元素放到顶端，减少数组大小并让这个元素下沉到合适位置。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/algorithms/堆的插入和删除.png" width="600px">
+</div>
+
+（最大）堆的代码实现：
+
+```java
+public class MaxHeap<K extends Comparable<K>> {
+
+    /**
+     * 堆数据
+     */
+    private K[] pq;
+
+    /**
+     * 堆大小
+     */
+    private int size = 0;
+
+    public MaxHeap(int maxN) {
+        pq = (K[]) new Comparable[maxN + 1];
+    }
+
+    /**
+     * 获取堆大小
+     * @return
+     */
+    public int size() {
+        return size;
+    }
+
+    /**
+     * 是否是空堆
+     * @return
+     */
+    public boolean isEmpty() {
+        return size == 0;
+    }
+
+    /**
+     * 插入元素
+     */
+    public void insert(K v) {
+        pq[++size] = v;
+        swim(size);
+    }
+
+    /**
+     * 删除最大值
+     */
+    public K delMax() {
+        K max = pq[1];
+        exch(1, size--);
+        pq[size + 1] = null;
+        sink(1);
+        return max;
+    }
+
+    private boolean less(int i, int j) {
+        return pq[i].compareTo(pq[j]) < 0;
+    }
+
+    /**
+     * 交换数据
+     */
+    private void exch(int i, int j) {
+        K t = pq[i];
+        pq[i] = pq[j];
+        pq[j] = t;
+    }
+
+    /**
+     * 节点上浮
+     */
+    private void swim(int k) {
+        while (k > 1 && less(k / 2, k)) {
+            exch(k / 2, k);
+            k = k / 2;
+        }
+    }
+
+    /**
+     * 节点下沉
+     */
+    private void sink(int k) {
+        while (2 * k <= size) {
+            int j = 2 * k;
+            if (j < size && less(j, j + 1)) {
+                j++;//larger children
+            }
+            if (!less(k, j)) {
+                break;
+            }
+            exch(k, j);
+            k = j;
+        }
+    }
+
+    public static void main(String[] args) {
+        MaxHeap<Integer> heap = new MaxHeap<>(7);
+        heap.insert(3);
+        heap.insert(1);
+        heap.insert(2);
+        heap.insert(4);
+        heap.insert(6);
+        heap.insert(5);
+        System.out.println("start size:" + heap.size);
+        while (!heap.isEmpty()) {
+            System.out.println("remove >>" + heap.delMax() + " size:" + heap.size);
+        }
+        System.out.println("end ...");
+    }
+}
+/* Output:
+start size:6
+remove >>6 size:5
+remove >>5 size:4
+remove >>4 size:3
+remove >>3 size:2
+remove >>2 size:1
+remove >>1 size:0
+end ...
+*/
+```
