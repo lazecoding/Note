@@ -7,6 +7,8 @@
 - [锁](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/锁.MD)
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/事务.md)
 - [复制](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/复制.md)
+- [触发器](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/trigger.md)
+
 <!--
 - [备份与恢复](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/备份与恢复.md)
 - [性能调优](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/性能调优.md)
