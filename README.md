@@ -14,10 +14,11 @@
 - [设计模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/README.md)
 
 <!--
-## 数据结构和算法
 - [数据结构](https://github.com/lazecoding/Note/blob/main/note/articles/structure/数据结构.md)
-- [算法](https://github.com/lazecoding/Note/blob/main/note/articles/algorithms/算法.md)
 -->
+## 数据结构和算法
+- [算法](https://github.com/lazecoding/Note/blob/main/note/articles/algorithms/README.md)
+
 
 ## 存储系统
 - [MySQL](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MySQL.md)
