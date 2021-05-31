@@ -28,6 +28,11 @@
 ## 搜索引擎
 - [Elasticsearch](https://github.com/lazecoding/Note/blob/main/note/articles/es/Elasticsearch.md)
 
+## 中间件
+
+- [Nginx](https://github.com/lazecoding/Note/blob/main/note/articles/nginx/README.md)
+
+
 <!--
 ### 计算机
 - [计算机网络](https://github.com/lazecoding/Note/blob/main/note/articles/network/network.md)
