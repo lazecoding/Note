@@ -1,5 +1,13 @@
 # 事件模块
 
+- 目录
+    - [事件的定义](#事件的定义)
+    - [ngx_events_module](#ngx_events_module)
+    - [事件驱动模型](#事件驱动模型])
+      - [select](#select)
+      - [poll](#poll)
+      - [epoll](#epoll)
+  
 Nginx 是一个事件驱动架构的 Web 服务器，事件驱动架构所要解决的问题是如何收集、管理、分发事件。
 这里所说的事件，主要以网络事件和定时器事件为主，而网络事件中又以 TCP 网络事件为主（Nginx 毕竟是个Web服务器），本章将围绕这两种事件为中心论述。
 
@@ -214,3 +222,53 @@ static ngx_command_t  ngx_event_core_commands[] = {
       ngx_null_command
 };
 ```
+
+### 事件驱动模型
+
+事件驱动模型有个问题，就是事件什么时候完成，如何告知调用方。
+
+事件轮询 API 就是用来解决这个问题的，这是一种多路复用机制。常见的事件轮询 API 有 select、poll、epoll，它们是操作系统提供给用户线程的 API，用于取代用户线程轮询。
+如果是用户线程轮询就要涉及用户态和内核态的频繁切换，这部分开销是巨大的。
+
+#### select
+
+最简单事件轮询 API 是 select，下面是 select 函数：
+
+```C
+int select(int maxfdp1,fd_set *readset,fd_set *writeset,fd_set *exceptset,const struct timeval *timeout);
+```
+
+select() 的机制中提供一种 fd_set 的数据结构，实际上是一个 long 类型的数组，每一个数组元素都能与一打开的文件句柄（不管是 Socket 句柄,还是其他文件或命名管道或设备句柄）建立联系，当调用 select() 时，由内核根据 IO 状态修改 fd_set 的内容，由此来通知执行了 select() 的进程哪一 socket 或文件可读写。
+
+使用 select() 最大的优势是可以在一个线程内同时处理多个 socket 的 IO 请求。用户可以注册多个 socket，然后不断地调用 select() 读取被激活的 socket，即可达到在同一个线程内同时处理多个 IO 请求的目的。但 select 存在三个问题：一是为了减少数据拷贝带来的性能损坏，内核对被监控的 fd_set 集合大小做了限制，并且这个是通过宏控制的，大小不可改变(限制为 1024)；二是每次调用 select()，都需要把 fd_set 集合从用户态拷贝到内核态，如果 fd_set 集合很大时，那这个开销很大；三是每次调用 select() 都需要在内核遍历传递进来的所有 fd_set，如果 fd_set 集合很大时，那这个开销也很大。
+
+#### poll
+
+poll 的机制与 select 类似，与 select 在本质上没有多大差别，管理多个描述符也是进行轮询，根据描述符的状态进行处理，只是 poll 没有最大文件描述符数量的限制。
+
+#### epoll
+
+epoll 在 Linux 2.6 内核正式提出，是基于事件驱动的 I/O 方式，相对于 select 来说，epoll 没有描述符个数限制，使用一个文件描述符管理多个描述符，将用户关心的文件描述符的事件存放到内核的一个事件表中，
+这样在用户空间和内核空间的 copy 只需一次。
+
+Linux 提供的 epoll 相关函数如下：
+
+```C
+int epoll_create(int size);
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout);
+```
+
+- epoll_create 函数创建一个epoll 的实例，返回一个表示当前 epoll 实例的文件描述符，后续相关操作都需要传入这个文件描述符。
+- epoll_ctl 函数讲将一个 fd 添加到一个 eventpoll 中，或从中删除，或如果此 fd 已经在 eventpoll 中，可以更改其监控事件。
+- epoll_wait 函数等待 epoll 事件从 epoll 实例中发生（rdlist 中存在或 timeout），并返回事件以及对应文件描述符。
+
+当调用 epoll_create 函数时，内核会创建一个 eventpoll 结构体用于存储使用 epoll_ctl 函数向 epoll 对象中添加进来的事件。这些事件都存储在红黑树中，通过红黑树高效地识别重复添加地事件。所有添加到 epoll 中的事件都会与设备(网卡)驱动程序建立回调关系，当相应的事件发生时会调用这个回调方法，它会将发生的事件添加到 rdlist 链表中。调用 epoll_wait 函数检查是否有事件发生时，只需要检查 eventpoll 对象中的 rdlist 链表中是否存在 epitem 元素(每一个事件都对应一个 epitem 结构体)。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/epoll数据结构示意图.png" width="600px">
+</div>
+
+对于 fd 集合的拷贝问题，epoll 通过内核与用户空间 mmap(内存映射)将用户空间的一块地址和内核空间的一块地址同时映射到相同的一块物理内存地址，使得这块物理内存对内核和对用户均可见，减少用户态和内核态之间的数据交换。
+
+综上，epoll 没有描述符个数限制，所以 epoll 不存在 select  中文件描述符数量限制问题；mmap 解决了 select 中用户态和内核态频繁切换的问题；通过 rdlist 解决了 select  中遍历所有事件的问题。
