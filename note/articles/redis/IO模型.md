@@ -59,7 +59,10 @@ int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout
 - epoll_ctl 函数讲将一个 fd 添加到一个 eventpoll 中，或从中删除，或如果此 fd 已经在 eventpoll 中，可以更改其监控事件。
 - epoll_wait 函数等待 epoll 事件从 epoll 实例中发生（rdlist 中存在或 timeout），并返回事件以及对应文件描述符。
 
-当调用 epoll_create 函数时，内核会创建一个 eventpoll 结构体用于存储使用 epoll_ctl 函数向 epoll 对象中添加进来的事件。这些事件都存储在红黑树中，通过红黑树高效地识别重复添加地事件。所有添加到 epoll 中的事件都会与设备(网卡)驱动程序建立回调关系，当相应的事件发生时会调用这个回调方法，它会将发生的事件添加到 rdlist 链表中。调用 epoll_wait 函数检查是否有事件发生时，只需要检查 eventpoll 对象中的 rdlist 链表中是否存在 epitem 元素(每一个事件都对应一个 epitem 结构体)。
+当调用 epoll_create 函数时，内核会创建一个 eventpoll 结构体用于存储使用 epoll_ctl 函数向 epoll 对象中添加进来的事件。这些事件都存储在红黑树中，通过红黑树可以保持稳定高效的查询效率，而且可以高效地识别重复添加地事件。
+所有添加到 epoll 中的事件都会与设备(网卡)驱动程序建立回调关系，当相应的事件发生时会调用这个回调方法，它会将发生的事件添加到 rdllist 链表中。
+调用 epoll_wait 函数检查是否有事件发生时，只需要检查 eventpoll 对象中的 rdllist 链表中是否存在 epitem 元素(每一个事件都对应一个 epitem 结构体)，如果 rdllist 不为空，只需要把这些事件从内核态拷贝到用户态，同时返回事件数量即可。
+因此，epoll 是十分高效地，可以轻松支持起百万级并发。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/redis/epoll数据结构示意图.png" width="600px">
