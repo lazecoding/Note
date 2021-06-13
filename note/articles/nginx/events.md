@@ -10,8 +10,11 @@
     - [ngx_epoll_module](#ngx_epoll_module)
       - [ngx_epoll_init](#ngx_epoll_init)
       - [ngx_epoll_add_event](#ngx_epoll_add_event)
-      - [ngx_epoll_process_events](#ngx_epoll_process_events)    
-  
+      - [ngx_epoll_process_events](#ngx_epoll_process_events)
+    - [定时器事件](#定时器事件)
+      - [ngx_epoll_init](#ngx_epoll_init)
+      - [ngx_epoll_add_event](#ngx_epoll_add_event)
+
 Nginx 是一个事件驱动架构的 Web 服务器，事件驱动架构所要解决的问题是如何收集、管理、分发事件。
 这里所说的事件，主要以网络事件和定时器事件为主，而网络事件中又以 TCP 网络事件为主（Nginx 毕竟是个Web服务器），本章将围绕这两种事件为中心论述。
 
@@ -705,3 +708,208 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
 
 这里出现了过期事件，其实很好理解。假设某次 epoll_wait 获取了 3 个事件,但是在处理第一个事件的时候由于业务需要关闭了一个连接，
 而这个连接恰好对应这第三个事件，当处理第三个事件的时候这个事件已经被处理过了，也就是过期事件。
+
+### 定时器事件
+
+和 epoll 等事件驱动机制不同，Nginx 自己实现了定时器事件触发机制。
+
+#### 缓存时间管理
+
+在实现定时器之前，Nginx 首先设计了一套时间管理方案——缓存时间。Nginx 每个进程独立管理当前时间，它将时间缓存在内存中，这样获取时间不需要每次都调用 gettimeofday，只需要获取内存的几个整型变量即可。
+
+gettimeofday 是 C 库提供的函数（不是系统调用），它封装了内核里的 sys_gettimeofday 系统调用，就是说，归根到底是系统调用。当我们调用 gettimeofday 时，将会向内核发送软中断，然后将陷入内核态，
+这时内核至少要做下列事：处理软中断、保存所有寄存器值、从用户态复制函数参数到内核态、执行、将结果复制到用户态。
+
+Nginx 每个进程都会独自管理当前时间，ngx_time_t 结构体是缓存时间变量的类型：
+
+```C
+typedef struct {
+    // 格林威治时间 1970 年 1 月 1 日凌晨 0 点 0 分 0 秒到当前时间的秒数
+    time_t      sec;
+    // sec 成员只能精确到秒，msec 则是当前时间相对于 sec 的毫秒偏移量 
+    ngx_uint_t  msec;
+    // 时区
+    ngx_int_t   gmtoff;
+}ngx_time_t;
+```
+
+#### 定时器的实现
+
+定时器是通过红黑树实现的。ngx_event_timer_rbtree 就是所有定时器事件组成的红黑树，而 ngx_event_timer_sentinel 就是这棵红黑树的哨兵节点。
+
+
+```C
+// 全局变量
+// 管理定时事件的红黑树
+ngx_rbtree_t              ngx_event_timer_rbtree;
+// 红黑树的节点
+static ngx_rbtree_node_t  ngx_event_timer_sentinel;
+```
+
+这棵红黑树中的每个节点都是 ngx_event_t 事件中的 timer 成员，而 ngx_rbtree_node_t 节点的关键字就是事件的超时时间，以这个超时时间的大小组成了红黑树 ngx_event_timer_rbtree。
+这样，如果需要找出最有可能超时的事件，那么将 ngx_event_timer_rbtree 树中最左边的节点取出来即可。只要用当前时间去比较这个最左边节点的超时时间，就会知道这个事件有没有触发超时，如果还没有触发超时，那么会知道最少还要经过多少毫秒满足超时条件而触发超时。
+
+定时器核心方法：
+
+- ngx_event_timer_init
+
+log 是记录日志的 ngx_log_t 对象，ngx_event_timer_init 的作用是初始化定时器。
+
+```C
+ngx_int_t
+ngx_event_timer_init(ngx_log_t *log)
+{
+    ngx_rbtree_init(&ngx_event_timer_rbtree, &ngx_event_timer_sentinel,
+                    ngx_rbtree_insert_timer_value);
+
+    return NGX_OK;
+}
+```
+
+- ngx_event_find_timer
+
+找出红黑树最左面节点，如果改节点的超时事件大于当前事件表明当前没有事件触发定时器，此时返回需要经过多少秒会有定时事件触发；
+如果改节点的超时事件小于或等于当前事件，则返回 0，表示定时器中已经存在需要触发的定时事件。
+
+```C
+ngx_msec_t
+ngx_event_find_timer(void)
+{
+    ngx_msec_int_t      timer;
+    ngx_rbtree_node_t  *node, *root, *sentinel;
+
+    if (ngx_event_timer_rbtree.root == &ngx_event_timer_sentinel) {
+        return NGX_TIMER_INFINITE;
+    }
+
+    root = ngx_event_timer_rbtree.root;
+    sentinel = ngx_event_timer_rbtree.sentinel;
+
+    node = ngx_rbtree_min(root, sentinel);
+
+    timer = (ngx_msec_int_t) (node->key - ngx_current_msec);
+
+    return (ngx_msec_t) (timer > 0 ? timer : 0);
+}
+```
+
+- ngx_event_expire_timers
+
+检查定时器中的所有事件，按红黑树节点大小顺序依次调用已经满足超时事件需要触发事件的 handler 回调方法。
+
+```C
+void
+ngx_event_expire_timers(void)
+{
+    ngx_event_t        *ev;
+    ngx_rbtree_node_t  *node, *root, *sentinel;
+
+    sentinel = ngx_event_timer_rbtree.sentinel;
+
+    for ( ;; ) {
+        root = ngx_event_timer_rbtree.root;
+
+        if (root == sentinel) {
+            return;
+        }
+
+        node = ngx_rbtree_min(root, sentinel);
+
+        /* node->key > ngx_current_msec */
+
+        if ((ngx_msec_int_t) (node->key - ngx_current_msec) > 0) {
+            return;
+        }
+
+        ev = (ngx_event_t *) ((char *) node - offsetof(ngx_event_t, timer));
+
+        ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
+                       "event timer del: %d: %M",
+                       ngx_event_ident(ev->data), ev->timer.key);
+
+        ngx_rbtree_delete(&ngx_event_timer_rbtree, &ev->timer);
+
+#if (NGX_DEBUG)
+        ev->timer.left = NULL;
+        ev->timer.right = NULL;
+        ev->timer.parent = NULL;
+#endif
+
+        ev->timer_set = 0;
+
+        ev->timedout = 1;
+
+        ev->handler(ev);
+    }
+}
+```
+
+- ngx_event_del_timer
+
+ev 是待操作事件，ngx_event_del_timer 的作用是移除一个事件。
+
+```C
+static ngx_inline void
+ngx_event_del_timer(ngx_event_t *ev)
+{
+    ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
+                   "event timer del: %d: %M",
+                    ngx_event_ident(ev->data), ev->timer.key);
+
+    ngx_rbtree_delete(&ngx_event_timer_rbtree, &ev->timer);
+
+#if (NGX_DEBUG)
+    ev->timer.left = NULL;
+    ev->timer.right = NULL;
+    ev->timer.parent = NULL;
+#endif
+
+    ev->timer_set = 0;
+}
+```
+
+- ngx_event_add_timer
+
+ev 是待操作事件，timer 是 timer 毫秒后超时，ngx_event_add_timer 是作用是添加一个定时器事件，超时时间为 timer 毫秒。
+
+```C
+static ngx_inline void
+ngx_event_add_timer(ngx_event_t *ev, ngx_msec_t timer)
+{
+    ngx_msec_t      key;
+    ngx_msec_int_t  diff;
+
+    key = ngx_current_msec + timer;
+
+    if (ev->timer_set) {
+
+        /*
+         * Use a previous timer value if difference between it and a new
+         * value is less than NGX_TIMER_LAZY_DELAY milliseconds: this allows
+         * to minimize the rbtree operations for fast connections.
+         */
+
+        diff = (ngx_msec_int_t) (key - ev->timer.key);
+
+        if (ngx_abs(diff) < NGX_TIMER_LAZY_DELAY) {
+            ngx_log_debug3(NGX_LOG_DEBUG_EVENT, ev->log, 0,
+                           "event timer: %d, old: %M, new: %M",
+                            ngx_event_ident(ev->data), ev->timer.key, key);
+            return;
+        }
+
+        ngx_del_timer(ev);
+    }
+
+    ev->timer.key = key;
+
+    ngx_log_debug3(NGX_LOG_DEBUG_EVENT, ev->log, 0,
+                   "event timer add: %d: %M:%M",
+                    ngx_event_ident(ev->data), timer, ev->timer.key);
+
+    ngx_rbtree_insert(&ngx_event_timer_rbtree, &ev->timer);
+
+    ev->timer_set = 1;
+}
+```
+
