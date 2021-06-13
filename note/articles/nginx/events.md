@@ -12,8 +12,8 @@
       - [ngx_epoll_add_event](#ngx_epoll_add_event)
       - [ngx_epoll_process_events](#ngx_epoll_process_events)
     - [定时器事件](#定时器事件)
-      - [ngx_epoll_init](#ngx_epoll_init)
-      - [ngx_epoll_add_event](#ngx_epoll_add_event)
+      - [缓存时间管理](#缓存时间管理)
+      - [定时器的实现](#定时器的实现)
 
 Nginx 是一个事件驱动架构的 Web 服务器，事件驱动架构所要解决的问题是如何收集、管理、分发事件。
 这里所说的事件，主要以网络事件和定时器事件为主，而网络事件中又以 TCP 网络事件为主（Nginx 毕竟是个Web服务器），本章将围绕这两种事件为中心论述。
@@ -913,3 +913,119 @@ ngx_event_add_timer(ngx_event_t *ev, ngx_msec_t timer)
 }
 ```
 
+### 建立连接
+
+监听连接的读事件的回调方法被设为 ngx_event_accept 方法，监听到请求连接的会将读事件会添加到 ngx_epoll_module 事件驱动模块中。当执行 ngx_epoll_process_events 方法时，如果存在建立连接事件，则会调用 ngx_event_accept 方法来建立新连接。
+
+但是，建立连接并没有这么简单。Nginx 是多进程架构，多个 worker 子进程监听相同的端口，这意味着多个子进程建立新连接存在竞争，又称 "惊群" 问题。 另一方面，建立连接还会涉及到负载均衡的问题，多个子进程竞争最终只有一个子进程会成功建立连接，应该让服务压力尽可能均匀分散到每个子进程中。
+
+#### post 事件队列
+
+实际上，上述问题的解决离不开 Nginx 的 post 事件队列。post 事件表示允许事件延后处理。Nginx 涉及了两个 post 队列，一个是处理新连接的 ngx_posted_accept_events 队列，另一个是处理普通读写事件的 ngx_posted_events 队列。
+
+epoll_wait 收集的一批事件分到 ngx_posted_accept_events 队列和 ngx_posted_events 队列中，ngx_posted_accept_events 队列优先执行，这是解决 "惊群" 问题和负载均衡的关键。
+
+#### 如何建立新连接
+
+ngx_event_accept 是处理建立连接事件的回调函数：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/ngx_event_accept建立新连接流程.png" width="400px">
+</div>
+
+- 首先调用 accept 方法试图建立新连接，如果没有需要处理的新连接事件，直接返回。
+- 初始化负载均衡的阈值 ngx_accept_disabled，这个阈值是进程允许的总连接数的 1/8 减去空闲连接数。
+- 调用 ngx_get_connection 方法从连接池中获取一个 ngx_connection_t 连接对象。
+- 为 ngx_connection_t 中的 pool 指针建立内存池。
+- 设置套接字属性，如设为非阻塞套接字。
+- 将这个新连接对应的读事件添加到 epoll 等事件驱动模块中，等待用户请求 epoll_wait 收集该事件。
+- 调用监听对象 ngx_listening_t 中的 hander 回调方法。
+
+#### 惊群问题
+
+Nginx 通过 accept_mutex 锁来解决 "惊群" 问题。开启 accept_mutex 情况下，只有通过 ngx_trylock_accept_mutex 成功获取 accept_mutex 锁的 worker 进程才会去试着监听端口。
+
+ngx_trylock_accept_mutex 源码：
+
+```C
+ngx_int_t
+ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
+{
+    // 使用进程见的同步锁，试图获取 accept_mutex 锁。
+    // ngx_shmtx_trylock 返回 1 表示获取锁成功，0 表示获取锁失败。
+    if (ngx_shmtx_trylock(&ngx_accept_mutex)) {
+
+        ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
+                       "accept mutex locked");
+                       
+        // ngx_accept_mutex_held 是标志位，为 1 表示当前线程（之前）已经获取到锁，直接返回成功
+        if (ngx_accept_mutex_held && ngx_accept_events == 0) {
+            return NGX_OK;
+        }
+        
+        // 将所有监听连接的读事件添加到当前的事件驱动模块（如 epoll）
+        if (ngx_enable_accept_events(cycle) == NGX_ERROR) {
+            ngx_shmtx_unlock(&ngx_accept_mutex);
+            return NGX_ERROR;
+        }
+
+        ngx_accept_events = 0;
+        ngx_accept_mutex_held = 1;
+
+        return NGX_OK;
+    }
+
+    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
+                   "accept mutex lock failed: %ui", ngx_accept_mutex_held);
+    // 行至此处表示获取锁失败，还原 ngx_accept_mutex_held 状态
+    if (ngx_accept_mutex_held) {
+        if (ngx_disable_accept_events(cycle, 0) == NGX_ERROR) {
+            return NGX_ERROR;
+        }
+
+        ngx_accept_mutex_held = 0;
+    }
+
+    return NGX_OK;
+}
+```
+
+post 事件队列将事件归类，有限处理 ngx_posted_accept_events 队列，即新连接事件。这样 worker 线程占有 accept_mutex 锁后可以快速处理完新连接事件并释放 accept_mutex 锁，
+这样就大大减少了 accept_mutex 锁的占用时间。
+
+#### 负载均衡
+
+和 "惊群问题" 一样，只有打开了 accept_mutex 锁才能实现 worker 子进程间的负载均衡。
+ 
+上面提到，worker 进程在建立新连接时候会初始化全局变量 ngx_accept_disabled，这个是负载均衡的阈值。
+第一次初始化 ngx_accept_disabled 是个负值，是总连接数的 -7/8，随着连接的建立，free_connection_n（空闲连接数）会减小，（connection_n，总链接数不变），ngx_accept_disabled 值逐渐变大。当 ngx_accept_disabled > 0，意味着当前使用的
+连接数达到了总连接数的 7/8，该 worker 进程将不再处理新连接，每次 ngx_process_events_and_timers 调用 ngx_accept_disabled 的值都会 -1，直到 ngx_accept_disabled < 0，即当前使用的连接数小于总连接数的 7/8，该 worker 进程才会尝试调用 ngx_trylock_accept_mutex 处理新连接。
+
+下面是 ngx_accept_disabled 初始化和使用源码：
+
+```C
+// src/event/ngx_event_accept.c#ngx_event_accept
+ngx_accept_disabled = ngx_cycle->connection_n / 8
+                              - ngx_cycle->free_connection_n;
+
+// src/event/ngx_event.c#ngx_process_events_and_timers
+if (ngx_accept_disabled > 0) {
+    ngx_accept_disabled--;
+
+} else {
+    if (ngx_trylock_accept_mutex(cycle) == NGX_ERROR) {
+        return;
+    }
+
+    if (ngx_accept_mutex_held) {
+        flags |= NGX_POST_EVENTS;
+
+    } else {
+        if (timer == NGX_TIMER_INFINITE
+            || timer > ngx_accept_mutex_delay)
+        {
+            timer = ngx_accept_mutex_delay;
+        }
+    }
+}
+```
