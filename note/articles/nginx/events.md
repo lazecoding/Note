@@ -14,6 +14,12 @@
     - [定时器事件](#定时器事件)
       - [缓存时间管理](#缓存时间管理)
       - [定时器的实现](#定时器的实现)
+    - [建立连接](#建立连接)
+      - [post 事件队列](#post-事件队列)
+      - [如何建立新连接](#如何建立新连接)
+      - [惊群问题](#惊群问题)
+      - [负载均衡](#负载均衡)
+    - [事件驱动框架执行流程](#事件驱动框架执行流程)
 
 Nginx 是一个事件驱动架构的 Web 服务器，事件驱动架构所要解决的问题是如何收集、管理、分发事件。
 这里所说的事件，主要以网络事件和定时器事件为主，而网络事件中又以 TCP 网络事件为主（Nginx 毕竟是个Web服务器），本章将围绕这两种事件为中心论述。
@@ -1029,3 +1035,105 @@ if (ngx_accept_disabled > 0) {
     }
 }
 ```
+
+### 事件驱动框架执行流程
+
+每个 worker 进程都在 ngx_worker_process_cycle 方法中循环处理事件，具体处理分发事件实际上就是调用的 ngx_process_events_and_timers 方法。
+
+循环调用 ngx_process_events_and_timers 方法就是在处理所有的事件，这正是事件驱动机制的核心。ngx_process_events_and_timers 方法既会处理普通的网络事件，也会处理定时器事件。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/ngx_process_events_and_timers执行流程.png" width="400px">
+</div>
+
+核心操作：
+
+- `ngx_trylock_accept_mutex(cycle)`：尝试处理处理新连接事件。
+- `(void) ngx_process_events(cycle, timer, flags)`：处理网络事件。
+- `ngx_event_expire_timers()`：处理定时器事件。
+- `ngx_event_process_posted(cycle, &ngx_posted_accept_events)`：处理 ngx_posted_accept_events 事件队列，即新连接事件。
+- `ngx_event_process_posted(cycle, &ngx_posted_events)`：处理 ngx_posted_events 事件队列，即普通事件。
+
+ngx_process_events_and_timers 源码：
+
+```C
+void
+ngx_process_events_and_timers(ngx_cycle_t *cycle)
+{
+    ngx_uint_t  flags;
+    ngx_msec_t  timer, delta;
+
+    if (ngx_timer_resolution) {
+        timer = NGX_TIMER_INFINITE;
+        flags = 0;
+
+    } else {
+        timer = ngx_event_find_timer();
+        flags = NGX_UPDATE_TIME;
+
+#if (NGX_WIN32)
+
+        /* handle signals from master in case of network inactivity */
+
+        if (timer == NGX_TIMER_INFINITE || timer > 500) {
+            timer = 500;
+        }
+
+#endif
+    }
+    
+    if (ngx_use_accept_mutex) {
+        // 负载均衡
+        if (ngx_accept_disabled > 0) {
+            ngx_accept_disabled--;
+
+        } else {
+            // 尝试 ngx_trylock_accept_mutex，处理新连接
+            if (ngx_trylock_accept_mutex(cycle) == NGX_ERROR) {
+                return;
+            }
+
+            if (ngx_accept_mutex_held) {
+                flags |= NGX_POST_EVENTS;
+
+            } else {
+                if (timer == NGX_TIMER_INFINITE
+                    || timer > ngx_accept_mutex_delay)
+                {
+                    timer = ngx_accept_mutex_delay;
+                }
+            }
+        }
+    }
+
+    if (!ngx_queue_empty(&ngx_posted_next_events)) {
+        ngx_event_move_posted_next(cycle);
+        timer = 0;
+    }
+    
+    delta = ngx_current_msec;
+
+    // 处理网络事件
+    (void) ngx_process_events(cycle, timer, flags);
+
+    // ngx_process_events 执行消耗的时间
+    delta = ngx_current_msec - delta;
+
+    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
+                   "timer delta: %M", delta);
+
+    // 处理 ngx_posted_accept_events 事件队列，即新连接事件
+    ngx_event_process_posted(cycle, &ngx_posted_accept_events);
+
+    if (ngx_accept_mutex_held) {
+        ngx_shmtx_unlock(&ngx_accept_mutex);
+    }
+
+    // 处理定时器事件
+    ngx_event_expire_timers();
+
+    // 处理 ngx_posted_events 事件队列，即普通事件
+    ngx_event_process_posted(cycle, &ngx_posted_events);
+}
+```
+
