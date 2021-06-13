@@ -936,7 +936,7 @@ epoll_wait 收集的一批事件分到 ngx_posted_accept_events 队列和 ngx_po
 ngx_event_accept 是处理建立连接事件的回调函数：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/ngx_event_accept建立新连接流程.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/nginx/ngx_event_accept建立新连接流程.png" width="400px">
 </div>
 
 - 首先调用 accept 方法试图建立新连接，如果没有需要处理的新连接事件，直接返回。
@@ -1043,7 +1043,7 @@ if (ngx_accept_disabled > 0) {
 循环调用 ngx_process_events_and_timers 方法就是在处理所有的事件，这正是事件驱动机制的核心。ngx_process_events_and_timers 方法既会处理普通的网络事件，也会处理定时器事件。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/ngx_process_events_and_timers执行流程.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/nginx/ngx_process_events_and_timers执行流程.png" width="400px">
 </div>
 
 核心操作：
