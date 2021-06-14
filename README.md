@@ -35,7 +35,7 @@
 
 <!--
 ### 计算机
-- [计算机网络](https://github.com/lazecoding/Note/blob/main/note/articles/network/network.md)
+- [计算机网络](https://github.com/lazecoding/Note/blob/main/note/articles/network/README.md)
   -->
 
 ## 读物
