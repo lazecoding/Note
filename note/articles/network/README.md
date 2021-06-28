@@ -5,3 +5,4 @@
 - [传输层](https://github.com/lazecoding/Note/blob/main/note/articles/network/传输层.md)
 - [网络层](https://github.com/lazecoding/Note/blob/main/note/articles/network/网络层.md)
 - [数据链路层](https://github.com/lazecoding/Note/blob/main/note/articles/network/数据链路层.md)
+- [物理层](https://github.com/lazecoding/Note/blob/main/note/articles/network/物理层.md)
