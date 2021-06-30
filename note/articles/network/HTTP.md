@@ -6,6 +6,7 @@
         - [HTTP 报文](#HTTP-报文)
         - [HTTP 方法](#HTTP-方法)
         - [HTTP 状态码](#HTTP-状态码)
+        - [HTTP 首部](#HTTP-首部)
 
 HTTP（Hypertext Transfer Protocol，超文本传输协议）是一个简单的请求 - 响应协议，它通常运行在 TCP（大多如此，并不是协议规定，也有基于 UDP 的实现 ） 之上。它指定了客户端可能发送给服务器什么样的消息以及得到什么样的响应。请求和响应消息的头以 ASCII 形式给出，而消息内容则具有一个类似 MIME 的格式。
 
@@ -220,3 +221,34 @@ CONNECT www.example.com:443 HTTP/1.1
 403 Forbidden：请求被拒绝。
 <br><br>
 404 Not Found
+
+#### HTTP 首部
+
+HTTP 协议的请求和响应报文必定包含 HTTP 首部，首部内容为客户端和服务器分别处理请求和响应提供所需的信息。
+
+在请求报文中，报文首部由方法、URI、HTTP 版本、HTTP 首部字段等部分构成。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/network/HTTP请求报文首部组成.png" width="600px">
+</div>
+
+在响应报文中，报文首部由HTTP 版本、状态码、HTTP 首部字段等部分构成。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/network/HTTP响应报文首部组成.png" width="600px">
+</div>
+
+实际上，HTTP 首部字段分成四种类型：通用首部字段、请求首部字段、响应首部字段、实体首部字段。
+
+- 通用首部字段：可以应用于请求和响应中，但是与在消息主体中的数据无关。
+- 请求首部字段：含有与所要获取的资源或者客户端自身相关的附加信息。
+- 响应首部字段：含有与响应相关的附加信息，比如它的位置或者与服务器相关的信息（名称、版本号等）。
+- 实体首部字段: 含有与消息主体相关的附加信息，比如长度或者MIME类型。
+
+具体内容访问：[首部字段信息](https://developer.mozilla.org/zh-CN/docs/Glossary/HTTP_header)
+
+#### URI 和 URL
+
+URI 是统一资源标识符，它在于能够唯一标识。URL 是统一资源定位符，它在于能够定位资源路径。
+
+可见，URL 是 URI 的子集，URI 只在于能够唯一标识，如身份证。
