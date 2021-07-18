@@ -2,27 +2,27 @@
 
 
 ## Java
-- [Java 基础](https://github.com/lazecoding/Note/blob/main/note/articles/java/JavaBase.md)
-- [并发编程](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/concurrent.md)
-- [JVM](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/JVM.md)
+- [Java 基础](https://github.com/lazecoding/Note/blob/main/note/articles/java/README.md)
+- [并发编程](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/README.md)
+- [JVM](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/README.md)
 
 
 ## 框架
-- [Spring Boot](https://github.com/lazecoding/Note/blob/main/note/articles/springboot/SpringBoot.md)
+- [Spring Boot](https://github.com/lazecoding/Note/blob/main/note/articles/springboot/README.md)
 
 ## 面向对象
 - [设计模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/README.md)
 
 <!--
-- [数据结构](https://github.com/lazecoding/Note/blob/main/note/articles/structure/数据结构.md)
+- [数据结构](https://github.com/lazecoding/Note/blob/main/note/articles/structure/README.md)
 -->
 ## 数据结构和算法
 - [算法](https://github.com/lazecoding/Note/blob/main/note/articles/algorithms/README.md)
 
 
 ## 存储系统
-- [MySQL](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/MySQL.md)
-- [Redis](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Redis.md)
+- [MySQL](https://github.com/lazecoding/Note/blob/main/note/articles/mysql/README.md)
+- [Redis](https://github.com/lazecoding/Note/blob/main/note/articles/redis/README.md)
 - [OSS](https://github.com/lazecoding/Note/blob/main/note/articles/oss/README.md)
 
 ## 搜索引擎
