@@ -1,5 +1,11 @@
 # Jedis
 
+- 目录
+    - [JedisPool](#JedisPool)
+    - [JedisPoolConfig](#JedisPoolConfig)
+    - [minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis](#minEvictableIdleTimeMillis-和-softMinEvictableIdleTimeMillis)
+    - [创建线程池](#创建线程池)
+
 Jedis 是基于 Java 的 Redis 客户端，集成了 Redis 命令操作，提供了连接池管理。
 
 ### JedisPool
@@ -17,7 +23,7 @@ Jedis 可以和 Redis 直连通信。直连是定义一个 TCP 连接，通过 s
 类图如下：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/JedisPoolConfig类图.png" width="300px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/JedisPoolConfig类图.png" width="400px">
 </div>
 
 JedisPoolConfig 继承了 GenericObjectPoolConfig，提供了一个无参构造函数，用于设置连接池的一些默认配置。
@@ -238,6 +244,164 @@ public abstract class BaseObjectPoolConfig<T> extends BaseObject implements Clon
 
 > JMX（Java Management Extensions，即Java管理扩展）是一个为应用程序、设备、系统等植入管理功能的框架。JMX可以跨越一系列异构操作系统平台、系统体系结构和网络传输协议，灵活的开发无缝集成的系统、网络和服务管理应用。
 
-<!--  区分 minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis evictorShutdownTimeoutMillis -->
+<!--  区分 minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis -->
 
+### minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis
 
+minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis 都用于限制连接的空闲时间。
+
+- `minEvictableIdleTimeMillis`：连接的最小空闲时间，达到此值后该空闲连接可能会被移除（还需看是否已达最大空闲连接数）；默认值 DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS = 1000L * 60L * 30L
+- `softMinEvictableIdleTimeMillis`：连接空闲的最小时间，达到此值后空闲链接将会被移除，且保留 minIdle 个空闲连接数；默认值 DEFAULT_SOFT_MIN_EVICTABLE_IDLE_TIME_MILLIS = -1
+
+线程池存在一个叫驱逐器的对象，用于检测和驱逐空闲连接。
+
+```java
+public class DefaultEvictionPolicy<T> implements EvictionPolicy<T> {
+
+    @Override
+    public boolean evict(final EvictionConfig config, final PooledObject<T> underTest,
+                         final int idleCount) {
+
+        if ((config.getIdleSoftEvictTime() < underTest.getIdleTimeMillis() &&
+                config.getMinIdle() < idleCount) ||
+                config.getIdleEvictTime() < underTest.getIdleTimeMillis()) {
+            return true;
+        }
+        return false;
+    }
+}
+```
+
+从上面代码可以看出，驱逐空闲线程由 minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis 决定。
+
+### 创建线程池
+
+Pool 是 Jedis 中线程池的基类，构造函数：
+
+```java
+// redis/clients/util/Pool.java#Pool
+public Pool(final GenericObjectPoolConfig poolConfig, PooledObjectFactory<T> factory) {
+    initPool(poolConfig, factory);
+}
+```
+
+Pool 构造函数中调用了 initPool 用于初始化线程池。Jedis 创建线程池其实是创建了一个 GenericObjectPool。
+
+```java
+// redis/clients/util/Pool.java#Pool
+public void initPool(final GenericObjectPoolConfig poolConfig, PooledObjectFactory<T> factory) {
+
+    if (this.internalPool != null) {
+      try {
+        closeInternalPool();
+      } catch (Exception e) {
+      }
+    }
+    
+    this.internalPool = new GenericObjectPool<T>(factory, poolConfig);
+}
+```
+
+GenericObjectPool 构造函数：
+
+```java
+// org/apache/commons/pool2/impl/GenericObjectPool.java#GenericObjectPool
+public GenericObjectPool(final PooledObjectFactory<T> factory,
+            final GenericObjectPoolConfig<T> config) {
+
+    super(config, ONAME_BASE, config.getJmxNamePrefix());
+
+    if (factory == null) {
+        jmxUnregister(); // tidy up
+        throw new IllegalArgumentException("factory may not be null");
+    }
+    this.factory = factory;
+
+    idleObjects = new LinkedBlockingDeque<>(config.getFairness());
+
+    setConfig(config);
+}
+```
+
+GenericObjectPool 构造函数中 setConfig 用于设置参数。
+
+```java
+// org/apache/commons/pool2/impl/BaseGenericObjectPool.java#setConfig
+public void setConfig(final GenericObjectPoolConfig<T> conf) {
+    super.setConfig(conf);
+    setMaxIdle(conf.getMaxIdle());
+    setMinIdle(conf.getMinIdle());
+    setMaxTotal(conf.getMaxTotal());
+}
+
+// org/apache/commons/pool2/impl/BaseGenericObjectPool.java#setConfig
+protected void setConfig(final BaseObjectPoolConfig<T> conf) {
+    setLifo(conf.getLifo());
+    setMaxWaitMillis(conf.getMaxWaitMillis());
+    setBlockWhenExhausted(conf.getBlockWhenExhausted());
+    setTestOnCreate(conf.getTestOnCreate());
+    setTestOnBorrow(conf.getTestOnBorrow());
+    setTestOnReturn(conf.getTestOnReturn());
+    setTestWhileIdle(conf.getTestWhileIdle());
+    setNumTestsPerEvictionRun(conf.getNumTestsPerEvictionRun());
+    setMinEvictableIdleTimeMillis(conf.getMinEvictableIdleTimeMillis());
+    setTimeBetweenEvictionRunsMillis(conf.getTimeBetweenEvictionRunsMillis());
+    setSoftMinEvictableIdleTimeMillis(conf.getSoftMinEvictableIdleTimeMillis());
+    final EvictionPolicy<T> policy = conf.getEvictionPolicy();
+    if (policy == null) {
+        // Use the class name (pre-2.6.0 compatible)
+        setEvictionPolicyClassName(conf.getEvictionPolicyClassName());
+    } else {
+        // Otherwise, use the class (2.6.0 feature)
+        setEvictionPolicy(policy);
+    }
+    setEvictorShutdownTimeoutMillis(conf.getEvictorShutdownTimeoutMillis());
+}
+```
+
+setConfig 用于设置线程池属性，其中 setTimeBetweenEvictionRunsMillis 除了设置属性，还调用了 startEvictor 启动驱逐器。
+
+```java
+// org/apache/commons/pool2/impl/BaseGenericObjectPool.java#setTimeBetweenEvictionRunsMillis
+public final void setTimeBetweenEvictionRunsMillis(
+        final long timeBetweenEvictionRunsMillis) {
+    this.timeBetweenEvictionRunsMillis = timeBetweenEvictionRunsMillis;
+    startEvictor(timeBetweenEvictionRunsMillis);
+}
+```
+
+startEvictor 启动驱逐器，用于检测和驱逐空闲连接。evictorShutdownTimeoutMillis 是驱逐器运行的超时时间，超过这个时间会自动销毁。
+
+```java
+// org/apache/commons/pool2/impl/BaseGenericObjectPool.java#startEvictor
+final void startEvictor(final long delay) {
+    synchronized (evictionLock) {
+        EvictionTimer.cancel(evictor, evictorShutdownTimeoutMillis, TimeUnit.MILLISECONDS);
+        evictor = null;
+        evictionIterator = null;
+        if (delay > 0) {
+            evictor = new Evictor();
+            EvictionTimer.schedule(evictor, delay, delay);
+        }
+    }
+}
+```
+
+EvictionPolicy 是驱逐器的抽象接口，它只有一个接口方法 evict，用于定义空闲连接驱除规则，DefaultEvictionPolicy 是它的默认实现。
+
+```java
+public class DefaultEvictionPolicy<T> implements EvictionPolicy<T> {
+
+    @Override
+    public boolean evict(final EvictionConfig config, final PooledObject<T> underTest,
+            final int idleCount) {
+
+        if ((config.getIdleSoftEvictTime() < underTest.getIdleTimeMillis() &&
+                config.getMinIdle() < idleCount) ||
+                config.getIdleEvictTime() < underTest.getIdleTimeMillis()) {
+            return true;
+        }
+        return false;
+    }
+}
+```
