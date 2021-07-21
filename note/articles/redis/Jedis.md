@@ -5,7 +5,8 @@
     - [JedisPoolConfig](#JedisPoolConfig)
     - [minEvictableIdleTimeMillis 和 softMinEvictableIdleTimeMillis](#minEvictableIdleTimeMillis-和-softMinEvictableIdleTimeMillis)
     - [创建线程池](#创建线程池)
-
+    - [优劣](#优劣)
+      
 Jedis 是基于 Java 的 Redis 客户端，集成了 Redis 命令操作，提供了连接池管理。
 
 ### JedisPool
@@ -405,3 +406,9 @@ public class DefaultEvictionPolicy<T> implements EvictionPolicy<T> {
     }
 }
 ```
+
+### 优劣
+
+Jedis 是老牌的 Redis 的 Java 实现客户端，提供了比较全面的 Redis 命令的支持。
+
+但是 Jedis 使用阻塞 I/O，且其方法调用都是同步的，程序流需要等到 sockets 处理完 I/O 才能执行，不支持异步；且 Jedis 客户端是多线程的，不能保证线程安全。
