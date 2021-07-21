@@ -411,4 +411,4 @@ public class DefaultEvictionPolicy<T> implements EvictionPolicy<T> {
 
 Jedis 是老牌的 Redis 的 Java 实现客户端，提供了比较全面的 Redis 命令的支持。
 
-但是 Jedis 使用阻塞 I/O，且其方法调用都是同步的，程序流需要等到 sockets 处理完 I/O 才能执行，不支持异步；且 Jedis 客户端是多线程的，不能保证线程安全。
+但是 Jedis 使用阻塞 I/O，且其方法调用都是同步的，程序流需要等到 sockets 处理完 I/O 才能执行，不支持异步；且 Jedis 客户端是多线程的，调度多个连接，不能保证线程安全。
