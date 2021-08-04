@@ -1,6 +1,7 @@
 package com.example.own.redisclient;
 
 import org.redisson.Redisson;
+import org.redisson.RedissonMultiLock;
 import org.redisson.api.*;
 import org.redisson.config.Config;
 
@@ -8,6 +9,8 @@ import java.io.Serializable;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -274,10 +277,16 @@ public class RedissonDemo {
     public static void locksOperate() {
         // 可重入锁
         lockOperate();
-
+        // 公平锁
         fairLockOperate();
-
+        // RedLock
         multiLockOperate();
+        // 读写锁
+        readWriteLockOperate();
+        // Semaphore
+        semaphoreOperate();
+        // CountDownLatch
+        countDownLatchOperate();
 
     }
 
@@ -287,31 +296,177 @@ public class RedissonDemo {
     public static void lockOperate() {
         String key1 = "lockkey1";
         RLock lock = redisson.getLock(key1);
-        Thread t = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                lock.lock();
-            }
-        });
+
+        // 阻塞可重入
         lock.lock();
+        try {
+            // dothing
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
 
-        t.start();
+        // 阻塞可重入 TTL
+        lock.lock(10, TimeUnit.SECONDS);
+        try {
+            // dothing
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
 
-        // lock.unlock();
+        // 阻塞可重入 tryLock
+        boolean hasLock = lock.tryLock();
+        if (hasLock) {
+            try {
+                // dothing
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                lock.unlock();
+            }
+        }
     }
 
     /**
      * 锁操作 : Fair Lock
      */
     public static void fairLockOperate() {
+        String key1 = "fairLockkey1";
+        RLock lock = redisson.getFairLock(key1);
 
+        // 阻塞可重入
+        lock.lock();
+        try {
+            // dothing
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+
+        // 阻塞可重入 TTL
+        lock.lock(10, TimeUnit.SECONDS);
+        try {
+            // dothing
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+
+        // 阻塞可重入 tryLock
+        boolean hasLock = lock.tryLock();
+        if (hasLock) {
+            try {
+                // dothing
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                lock.unlock();
+            }
+        }
     }
 
     /**
      * 锁操作 : MultiLock  RedLock
      */
     public static void multiLockOperate() {
+        RLock lock1 = redisson.getLock("lockforred1");
+        RLock lock2 = redisson.getLock("lockforred2");
+        RLock lock3 = redisson.getLock("lockforred3");
+        RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
+        // locks: lock1 lock2 lock3
+        boolean hasLock = lock.tryLock();
+        if(hasLock) {
+            try {
+                System.out.println("MultiLock dothings");
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                lock.unlock();
+            }
+        }
 
+    }
+
+    /**
+     * 锁操作 : ReadWriteLock
+     */
+    public static void readWriteLockOperate() {
+        String key1 = "readWriteLockkey1";
+        RReadWriteLock rReadWriteLock = redisson.getReadWriteLock(key1);
+        RLock readLock =  rReadWriteLock.readLock();
+        RLock writeLock =  rReadWriteLock.writeLock();
+
+        System.out.println("读锁测试：");
+        ExecutorService executorService= Executors.newFixedThreadPool(5);
+        for (int i=0;i<10;i++){
+            executorService.submit(()->{
+                try{
+                    readLock.lock();
+                    System.out.println("线程 "+Thread.currentThread().getId()+" readLock 获得锁："+System.currentTimeMillis());
+                    Thread.sleep(1000);
+                }catch (Exception e){
+                    e.printStackTrace();
+                }finally {
+                    System.out.println("线程 "+Thread.currentThread().getId()+" readLock 释放锁："+System.currentTimeMillis());
+                    readLock.unlock();
+                }
+            });
+        }
+
+        try{
+            Thread.sleep(10000);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
+        System.out.println("写锁测试：");
+        ExecutorService executorService2= Executors.newFixedThreadPool(5);
+        for (int i=0;i<10;i++){
+            executorService2.submit(()->{
+                try{
+                    writeLock.lock();
+                    System.out.println("线程 "+Thread.currentThread().getId()+" writeLock 获得锁："+System.currentTimeMillis());
+                    Thread.sleep(1000);
+                }catch (Exception e){
+                    e.printStackTrace();
+                }finally {
+                    System.out.println("线程 "+Thread.currentThread().getId()+" writeLock 释放锁："+System.currentTimeMillis());
+                    writeLock.unlock();
+                }
+            });
+        }
+    }
+
+    /**
+     * Semaphore
+     */
+    public static void semaphoreOperate() {
+
+    }
+
+    /**
+     * CountDownLatch
+     */
+    public static void countDownLatchOperate() {
+        String key1 = "countDownLatchKey1";
+        RCountDownLatch latch = redisson.getCountDownLatch(key1);
+        latch.trySetCount(2);
+        System.out.println("start countDown");
+        // 由于 Redis 实现，可以实现分布式，其他服务器亦可
+        latch.countDown();
+        System.out.println("end countDown");
+        try {
+            System.out.println("start await");
+            latch.await();
+            System.out.println("end await");
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
 }
