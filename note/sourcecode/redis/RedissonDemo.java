@@ -1,4 +1,4 @@
-package com.example.own.redisclient;
+package personal.boot.redisclient;
 
 import org.redisson.Redisson;
 import org.redisson.RedissonMultiLock;
@@ -26,14 +26,14 @@ public class RedissonDemo {
     static {
         Config config = new Config();
         // 使用单机Redis服务
-        config.useSingleServer().setAddress("redis://127.0.0.1:6379").setDatabase(8);
+        config.useSingleServer().setAddress("redis://IP:port").setDatabase(8).setPassword("PWD");
         // 创建Redisson客户端
         redisson = Redisson.create(config);
     }
 
     public static void main(String[] args) {
         // 数据操作
-        // dataTypeOperate();
+        dataTypeOperate();
         // 锁操作
         locksOperate();
     }
