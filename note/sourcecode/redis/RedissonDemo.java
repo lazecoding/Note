@@ -1,14 +1,13 @@
-package personal.boot.redisclient;
-
 import org.redisson.Redisson;
 import org.redisson.RedissonMultiLock;
 import org.redisson.api.*;
-import org.redisson.config.Config;
+import org.redisson.config.*;
 
 import java.io.Serializable;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -32,10 +31,90 @@ public class RedissonDemo {
     }
 
     public static void main(String[] args) {
+        // 配置
+        //configOperate();
         // 数据操作
-        dataTypeOperate();
+        // dataTypeOperate();
         // 锁操作
-        locksOperate();
+        //locksOperate();
+        // 工具操作
+        toolOprate();
+    }
+
+    /**
+     * 配置
+     */
+    public static void configOperate() {
+        // 单机
+        singleConfig();
+        // 主从
+        masterSlaveConfig();
+        // 哨兵
+        sentinelConfig();
+        // 集群
+        clusterConfig();
+    }
+
+    /**
+     * 配置 : 单机
+     */
+    public static void singleConfig() {
+        // 连接配置
+        RedissonClient redisson = Redisson.create();
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
+        RedissonClient redissonClient = Redisson.create(config);
+
+        // 实例配置类
+        SingleServerConfig singleConfig = config.useSingleServer();
+    }
+
+    /**
+     * 配置 : 主从
+     */
+    public static void masterSlaveConfig() {
+        // 连接配置
+        Config config = new Config();
+        config.useMasterSlaveServers()
+                .setMasterAddress("redis://127.0.0.1:6379")
+                .addSlaveAddress("redis://127.0.0.1:6389", "redis://127.0.0.1:6332", "redis://127.0.0.1:6419")
+                .addSlaveAddress("redis://127.0.0.1:6399");
+        RedissonClient redissonClient = Redisson.create(config);
+
+        // 实例配置类
+        MasterSlaveServersConfig masterSlaveConfig = config.useMasterSlaveServers();
+    }
+
+    /**
+     * 配置 : 哨兵
+     */
+    public static void sentinelConfig() {
+        // 连接配置
+        Config config = new Config();
+        config.useSentinelServers()
+                .setMasterName("mymaster")
+                .addSentinelAddress("127.0.0.1:26389", "127.0.0.1:26379")
+                .addSentinelAddress("127.0.0.1:26319");
+        RedissonClient redissonClient = Redisson.create(config);
+
+        // 实例配置类
+        SentinelServersConfig sentinelConfig = config.useSentinelServers();
+    }
+
+    /**
+     * 配置 : 集群
+     */
+    public static void clusterConfig() {
+        // 连接配置
+        Config config = new Config();
+        config.useClusterServers()
+                .setScanInterval(2000) // 集群状态扫描间隔时间，单位是毫秒
+                .addNodeAddress("redis://127.0.0.1:7000", "redis://127.0.0.1:7001")
+                .addNodeAddress("redis://127.0.0.1:7002");
+        RedissonClient redissonClient = Redisson.create(config);
+
+        // 实例配置类
+        ClusterServersConfig clusterConfig = config.useClusterServers();
     }
 
     /**
@@ -84,6 +163,13 @@ public class RedissonDemo {
         atomicDouble.incrementAndGet();
         Double v3 = atomicDouble.get();
         System.out.println("key1 atomic double value3:" + v3);
+
+        // 累加器 LongAdder
+        RLongAdder rLongAdder = redisson.getLongAdder("myLongAdder");
+        rLongAdder.add(12);
+        rLongAdder.increment();
+        rLongAdder.decrement();
+        rLongAdder.sum();
     }
 
     /**
@@ -380,7 +466,7 @@ public class RedissonDemo {
         RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
         // locks: lock1 lock2 lock3
         boolean hasLock = lock.tryLock();
-        if(hasLock) {
+        if (hasLock) {
             try {
                 System.out.println("MultiLock dothings");
             } catch (Exception e) {
@@ -398,44 +484,44 @@ public class RedissonDemo {
     public static void readWriteLockOperate() {
         String key1 = "readWriteLockkey1";
         RReadWriteLock rReadWriteLock = redisson.getReadWriteLock(key1);
-        RLock readLock =  rReadWriteLock.readLock();
-        RLock writeLock =  rReadWriteLock.writeLock();
+        RLock readLock = rReadWriteLock.readLock();
+        RLock writeLock = rReadWriteLock.writeLock();
 
         System.out.println("读锁测试：");
-        ExecutorService executorService= Executors.newFixedThreadPool(5);
-        for (int i=0;i<10;i++){
-            executorService.submit(()->{
-                try{
+        ExecutorService executorService = Executors.newFixedThreadPool(5);
+        for (int i = 0; i < 10; i++) {
+            executorService.submit(() -> {
+                try {
                     readLock.lock();
-                    System.out.println("线程 "+Thread.currentThread().getId()+" readLock 获得锁："+System.currentTimeMillis());
+                    System.out.println("线程 " + Thread.currentThread().getId() + " readLock 获得锁：" + System.currentTimeMillis());
                     Thread.sleep(1000);
-                }catch (Exception e){
+                } catch (Exception e) {
                     e.printStackTrace();
-                }finally {
-                    System.out.println("线程 "+Thread.currentThread().getId()+" readLock 释放锁："+System.currentTimeMillis());
+                } finally {
+                    System.out.println("线程 " + Thread.currentThread().getId() + " readLock 释放锁：" + System.currentTimeMillis());
                     readLock.unlock();
                 }
             });
         }
 
-        try{
+        try {
             Thread.sleep(10000);
-        }catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
         System.out.println("写锁测试：");
-        ExecutorService executorService2= Executors.newFixedThreadPool(5);
-        for (int i=0;i<10;i++){
-            executorService2.submit(()->{
-                try{
+        ExecutorService executorService2 = Executors.newFixedThreadPool(5);
+        for (int i = 0; i < 10; i++) {
+            executorService2.submit(() -> {
+                try {
                     writeLock.lock();
-                    System.out.println("线程 "+Thread.currentThread().getId()+" writeLock 获得锁："+System.currentTimeMillis());
+                    System.out.println("线程 " + Thread.currentThread().getId() + " writeLock 获得锁：" + System.currentTimeMillis());
                     Thread.sleep(1000);
-                }catch (Exception e){
+                } catch (Exception e) {
                     e.printStackTrace();
-                }finally {
-                    System.out.println("线程 "+Thread.currentThread().getId()+" writeLock 释放锁："+System.currentTimeMillis());
+                } finally {
+                    System.out.println("线程 " + Thread.currentThread().getId() + " writeLock 释放锁：" + System.currentTimeMillis());
                     writeLock.unlock();
                 }
             });
@@ -466,6 +552,33 @@ public class RedissonDemo {
             System.out.println("end await");
         } catch (InterruptedException e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * 工具操作
+     */
+    public static void toolOprate() {
+        // 限流器
+        rateLimiterOprate();
+    }
+
+    /**
+     * 工具操作 ：RateLimiter
+     */
+    public static void rateLimiterOprate() {
+        String key1 = "rateLimiterkey1";
+        RRateLimiter rateLimiter = redisson.getRateLimiter(key1);
+        // 每 5 秒钟产生 3 个令牌
+        rateLimiter.trySetRate(RateType.OVERALL, 8, 5, RateIntervalUnit.SECONDS);
+
+        while (true) {
+            rateLimiter.acquire(3);
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
