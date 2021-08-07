@@ -20,6 +20,7 @@
         - [Bounded Blocking Queue](#Bounded-Blocking-Queue)    
         - [Delayed Queue](#Delayed-Queue)
         - [Priority Queue](#Priority-Queue)
+    - [锁](#锁)
 
 Redisson 是一个在 Redis 的基础上实现的 Java 驻内存数据网格（In-Memory Data Grid）。它提供了一系列常用的分布式的 Java 对象和许多分布式服务。
 
@@ -298,4 +299,64 @@ queue.pollLast();
 ```
 
 > 类似的双端队列不再赘述
+
+### 锁
+
+RLock 是 Redisson 分布式锁的接口，它的主要实现有 RedissonLock、RedissonFairLock、RedissonReadLock、RedissonWriteLock、RedissonMultiLock、RedissonRedLock。
+
+类图如下：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/RLock类图.png" width="600px">
+</div>
+
+RLock 接口类（主要方法）：
+
+```java
+public interface RLock extends Lock, RLockAsync {
+    /**
+     * 锁的键名
+     */
+    String getName();
+
+    /**
+     * 获取锁（阻塞式）
+     */
+    void lock();
+
+    /**
+     * 获取锁，提供 TTL（阻塞式）
+     */
+    void lock(long leaseTime, TimeUnit unit);
+
+    /**
+     * 中断锁，表示该锁可以被中断
+     * 假如 A、B 同时调某个方法，A 获取锁，B 未获取锁，那么B线程可以通过
+     * Thread.currentThread().interrupt(); 方法真正中断该线程
+     */
+    void lockInterruptibly(long leaseTime, TimeUnit unit) throws InterruptedException;
+
+    /**
+     * 尝试获取锁并返回结果（只有在锁空闲时才能获取到锁）
+     */
+    boolean tryLock();
+
+    /**
+     * 尝试获取锁并返回结果，提供 TTL（只有在锁空闲时才能获取到锁）
+     */
+    boolean tryLock(long waitTime, long leaseTime, TimeUnit unit) throws InterruptedException;
+
+    /**
+     * 释放锁
+     */
+    void unlock();
+    
+    /**
+     * 获取锁剩余存活时间
+     */
+    long remainTimeToLive();
+}
+```
+
+> RLock 和 Java 并发包中的 Lock 接口主要区别在于添加了 leaseTime 属性字段，用来设置锁的过期时间，避免死锁。
 
