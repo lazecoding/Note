@@ -17,10 +17,16 @@
         - [Queue](#Queue)
         - [Deque](#Deque)
         - [Blocking Queue](#Blocking-Queue)
-        - [Bounded Blocking Queue](#Bounded-Blocking-Queue)    
+        - [Bounded Blocking Queue](#Bounded-Blocking-Queue)
         - [Delayed Queue](#Delayed-Queue)
         - [Priority Queue](#Priority-Queue)
     - [锁](#锁)
+        - [RedissonLock](#RedissonLock)
+        - [RedissonLock 子类](#RedissonLock-子类)
+        - [RedissonMultiLock](#RedissonMultiLock)
+        - [RedissonRedLock](#RedissonRedLock)
+        - [同步工具](#同步工具)
+    - [分布式服务](#分布式服务)
 
 Redisson 是一个在 Redis 的基础上实现的 Java 驻内存数据网格（In-Memory Data Grid）。它提供了一系列常用的分布式的 Java 对象和许多分布式服务。
 
@@ -360,3 +366,451 @@ public interface RLock extends Lock, RLockAsync {
 
 > RLock 和 Java 并发包中的 Lock 接口主要区别在于添加了 leaseTime 属性字段，用来设置锁的过期时间，避免死锁。
 
+#### RedissonLock
+
+RedissonLock 是一个可重入的分布式锁，它是 RLock 接口最基础、最核心的实现。
+
+使用示例：
+
+```java
+RLock lock = redisson.getLock("lock_key");
+
+// 获取锁
+lock.lock();
+
+try {
+    // ....
+} catch (Exception e) {
+    e.printStackTrace();
+} finally {
+    // 解锁
+    lock.unlock();
+}
+```
+
+redisson.getLock("lock_key"); 获取的是 RedissonLock 实例；lock() 调用的是阻塞式获取锁，如果没获取到锁便会一直阻塞，直到成功获取锁；unlock() 是释放当前线程持有的锁。
+
+lock：
+
+```java
+// org/redisson/RedissonLock.java#lock
+@Override
+public void lock() {
+    try {
+        lock(-1, null, false);
+    } catch (InterruptedException e) {
+        throw new IllegalStateException();
+    }
+}
+```
+
+RedissonLock.lock() 是不具备 TTL 的，即没有超时时间，所以 leaseTime 传参 -1。
+
+```java
+// org/redisson/RedissonLock.java#lock
+private void lock(long leaseTime, TimeUnit unit, boolean interruptibly) throws InterruptedException {
+    long threadId = Thread.currentThread().getId();
+    Long ttl = tryAcquire(leaseTime, unit, threadId);
+    // lock acquired
+    if (ttl == null) {
+        return;
+    }
+
+    RFuture<RedissonLockEntry> future = subscribe(threadId);
+    if (interruptibly) {
+        commandExecutor.syncSubscriptionInterrupted(future);
+    } else {
+        commandExecutor.syncSubscription(future);
+    }
+
+    try {
+        while (true) {
+            ttl = tryAcquire(leaseTime, unit, threadId);
+            // lock acquired
+            if (ttl == null) {
+                break;
+            }
+
+            // waiting for message
+            if (ttl >= 0) {
+                try {
+                    future.getNow().getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    if (interruptibly) {
+                        throw e;
+                    }
+                    future.getNow().getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+                }
+            } else {
+                if (interruptibly) {
+                    future.getNow().getLatch().acquire();
+                } else {
+                    future.getNow().getLatch().acquireUninterruptibly();
+                }
+            }
+        }
+    } finally {
+        unsubscribe(future, threadId);
+    }
+}
+```
+
+`Long ttl = tryAcquire(leaseTime, unit, threadId);` 方法尝试获取锁。返回值 ttl 指的是锁的存活时间，需要注意的是，从下面的代码来看，如果当前线程持有锁返回值是 null，只有未获取到锁返回值才会有值，即这个返回值是值还需要等待多久才可能获取到锁。
+
+如果 ttl 不为空，即当前线程未获取到锁，下面会循环获取锁。
+
+```java
+// org/redisson/RedissonLock.java#tryAcquire
+private Long tryAcquire(long leaseTime, TimeUnit unit, long threadId) {
+    return get(tryAcquireAsync(leaseTime, unit, threadId));
+}
+
+// org/redisson/RedissonLock.java#tryAcquireAsync
+private <T> RFuture<Long> tryAcquireAsync(long leaseTime, TimeUnit unit, long threadId) {
+    if (leaseTime != -1) {
+        return tryLockInnerAsync(leaseTime, unit, threadId, RedisCommands.EVAL_LONG);
+    }
+    RFuture<Long> ttlRemainingFuture = tryLockInnerAsync(commandExecutor.getConnectionManager().getCfg().getLockWatchdogTimeout(), TimeUnit.MILLISECONDS, threadId, RedisCommands.EVAL_LONG);
+    ttlRemainingFuture.onComplete((ttlRemaining, e) -> {
+        if (e != null) {
+            return;
+        }
+
+        // lock acquired
+        if (ttlRemaining == null) {
+            scheduleExpirationRenewal(threadId);
+        }
+    });
+    return ttlRemainingFuture;
+}
+
+// org/redisson/RedissonLock.java#tryLockInnerAsync
+<T> RFuture<T> tryLockInnerAsync(long leaseTime, TimeUnit unit, long threadId, RedisStrictCommand<T> command) {
+    internalLockLeaseTime = unit.toMillis(leaseTime);
+
+    return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, command,
+              "if (redis.call('exists', KEYS[1]) == 0) then " +
+                  "redis.call('hset', KEYS[1], ARGV[2], 1); " +
+                  "redis.call('pexpire', KEYS[1], ARGV[1]); " +
+                  "return nil; " +
+              "end; " +
+              "if (redis.call('hexists', KEYS[1], ARGV[2]) == 1) then " +
+                  "redis.call('hincrby', KEYS[1], ARGV[2], 1); " +
+                  "redis.call('pexpire', KEYS[1], ARGV[1]); " +
+                  "return nil; " +
+              "end; " +
+              "return redis.call('pttl', KEYS[1]);",
+                Collections.<Object>singletonList(getName()), internalLockLeaseTime, getLockName(threadId));
+}
+```
+
+`tryLockInnerAsync(commandExecutor.getConnectionManager().getCfg().getLockWatchdogTimeout(), TimeUnit.MILLISECONDS, threadId, RedisCommands.EVAL_LONG);` 为锁设置了默认的有效时间 30S。该方法通过 Lua 脚本访问 Redis，保证了操作的原子性。
+
+成功获取锁之后， `scheduleExpirationRenewal` 用于创建 TTL 刷新任务。
+
+```lua
+-- keys = {"lock_key"}
+-- params = {30000, "1cd16e08-4c61-49d8-9085-a00beeaa3499:1"} 
+if (redis.call('exists', KEYS[1]) == 0) then
+    redis.call('hset', KEYS[1], ARGV[2], 1);
+    redis.call('pexpire', KEYS[1], ARGV[1]);
+    return nil;
+end
+if (redis.call('hexists', KEYS[1], ARGV[2]) == 1) then
+    redis.call('hincrby', KEYS[1], ARGV[2], 1);
+    redis.call('pexpire', KEYS[1], ARGV[1]);
+    return nil;
+end
+return redis.call('pttl', KEYS[1]);
+```
+
+Lua 脚本中 KEYS[N] 表示 keys 数组中第 N 个元素，ARGV[N] 表示 params 数组中第 N 个元素。
+
+上述脚本的意思是：
+- 如果不存在以该 key 创建一个 hash 对象，hash 中添加一个以 1cd16e08-4c61-49d8-9085-a00beeaa3499:1 为键，1 为值的元素，之后再设置该 hash 对象的 TTL 为 3000 毫秒，并直接返回 nil 。
+- 接着，判断以 lock_key 为键的 hash 对象中是否包含以 1cd16e08-4c61-49d8-9085-a00beeaa3499:1 为键的元素，如果存在就将其对应的值 +1，表示当前线程对该锁的持有个数，然后设置 hash 对象的 TTL，并直接返回 nil 。
+- 如果前面的判断都没走，就直接调用 pttl 获取该 hash 对象的 TTL 并返回该值。（这意味着锁被其他线程持有）
+
+当加锁成功后，由于 Redisson 的锁都是包含 TTL 的，所以还需要一个机制用于刷新 TTL。
+
+```java
+// org/redisson/RedissonLock.java#scheduleExpirationRenewal
+private void scheduleExpirationRenewal(long threadId) {
+    ExpirationEntry entry = new ExpirationEntry();
+    ExpirationEntry oldEntry = EXPIRATION_RENEWAL_MAP.putIfAbsent(getEntryName(), entry);
+    if (oldEntry != null) {
+        oldEntry.addThreadId(threadId);
+    } else {
+        entry.addThreadId(threadId);
+        renewExpiration();
+    }
+}
+
+// org/redisson/RedissonLock.java#renewExpirationAsync
+protected RFuture<Boolean> renewExpirationAsync(long threadId) {
+    return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+            "if (redis.call('hexists', KEYS[1], ARGV[2]) == 1) then " +
+                "redis.call('pexpire', KEYS[1], ARGV[1]); " +
+                "return 1; " +
+            "end; " +
+            "return 0;",
+        Collections.<Object>singletonList(getName()), 
+        internalLockLeaseTime, getLockName(threadId));
+}
+```
+
+scheduleExpirationRenewal 会注册一个定时任务，每执行一次任务会刷新 TTL，并重新注册一个定时任务，反复。
+
+tryLock：
+
+```java
+// org/redisson/tryLock.java#lock
+@Override
+public boolean tryLock(long waitTime, long leaseTime, TimeUnit unit) throws InterruptedException {
+    long time = unit.toMillis(waitTime);
+    long current = System.currentTimeMillis();
+    long threadId = Thread.currentThread().getId();
+    Long ttl = tryAcquire(leaseTime, unit, threadId);
+    // lock acquired
+    if (ttl == null) {
+        return true;
+    }
+    
+    time -= System.currentTimeMillis() - current;
+    if (time <= 0) {
+        acquireFailed(threadId);
+        return false;
+    }
+    
+    current = System.currentTimeMillis();
+    RFuture<RedissonLockEntry> subscribeFuture = subscribe(threadId);
+    if (!subscribeFuture.await(time, TimeUnit.MILLISECONDS)) {
+        if (!subscribeFuture.cancel(false)) {
+            subscribeFuture.onComplete((res, e) -> {
+                if (e == null) {
+                    unsubscribe(subscribeFuture, threadId);
+                }
+            });
+        }
+        acquireFailed(threadId);
+        return false;
+    }
+
+    try {
+        time -= System.currentTimeMillis() - current;
+        if (time <= 0) {
+            acquireFailed(threadId);
+            return false;
+        }
+    
+        while (true) {
+            long currentTime = System.currentTimeMillis();
+            ttl = tryAcquire(leaseTime, unit, threadId);
+            // lock acquired
+            if (ttl == null) {
+                return true;
+            }
+
+            time -= System.currentTimeMillis() - currentTime;
+            if (time <= 0) {
+                acquireFailed(threadId);
+                return false;
+            }
+
+            // waiting for message
+            currentTime = System.currentTimeMillis();
+            if (ttl >= 0 && ttl < time) {
+                subscribeFuture.getNow().getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+            } else {
+                subscribeFuture.getNow().getLatch().tryAcquire(time, TimeUnit.MILLISECONDS);
+            }
+
+            time -= System.currentTimeMillis() - currentTime;
+            if (time <= 0) {
+                acquireFailed(threadId);
+                return false;
+            }
+        }
+    } finally {
+        unsubscribe(subscribeFuture, threadId);
+    }
+}
+```
+
+tryLock 和 lock 是否相似，如果成功获取锁它们是没有区别的，当未成功获取锁时 tryLock 相较 lock 多一个 waitTime 属性，用于控制等待时间，超出这个时间则不再尝试获取锁。
+
+unlock：
+
+unlock 逻辑很简单，就是解锁。
+
+```java
+// org/redisson/RedissonLock.java#unlock
+@Override
+public void unlock() {
+    try {
+        get(unlockAsync(Thread.currentThread().getId()));
+    } catch (RedisException e) {
+        if (e.getCause() instanceof IllegalMonitorStateException) {
+            throw (IllegalMonitorStateException) e.getCause();
+        } else {
+            throw e;
+        }
+    }
+}
+
+// org/redisson/RedissonLock.java#unlockAsync
+@Override
+public RFuture<Void> unlockAsync(long threadId) {
+    RPromise<Void> result = new RedissonPromise<Void>();
+    RFuture<Boolean> future = unlockInnerAsync(threadId);
+
+    future.onComplete((opStatus, e) -> {
+        cancelExpirationRenewal(threadId);
+
+        if (e != null) {
+            result.tryFailure(e);
+            return;
+        }
+
+        if (opStatus == null) {
+            IllegalMonitorStateException cause = new IllegalMonitorStateException("attempt to unlock lock, not locked by current thread by node id: "
+                    + id + " thread-id: " + threadId);
+            result.tryFailure(cause);
+            return;
+        }
+
+        result.trySuccess(null);
+    });
+
+    return result;
+}
+```
+
+unlockInnerAsync 负责执行解锁操作；`opStatus == null` 表示非持有者释放锁，会抛出 IllegalMonitorStateException 异常。
+
+cancelExpirationRenewal 用于移除 TTL 刷新任务。
+
+```java
+// org/redisson/RedissonLock.java#unlockInnerAsync
+protected RFuture<Boolean> unlockInnerAsync(long threadId) {
+    return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+            "if (redis.call('hexists', KEYS[1], ARGV[3]) == 0) then " +
+                "return nil;" +
+            "end; " +
+            "local counter = redis.call('hincrby', KEYS[1], ARGV[3], -1); " +
+            "if (counter > 0) then " +
+                "redis.call('pexpire', KEYS[1], ARGV[2]); " +
+                "return 0; " +
+            "else " +
+                "redis.call('del', KEYS[1]); " +
+                "redis.call('publish', KEYS[2], ARGV[1]); " +
+                "return 1; "+
+            "end; " +
+            "return nil;",
+            Arrays.<Object>asList(getName(), getChannelName()), LockPubSub.UNLOCK_MESSAGE, internalLockLeaseTime, getLockName(threadId));
+
+}
+```
+
+unlockInnerAsync 通过 Lua 脚本访问 Redis，保证了操作的原子性。
+
+```lua
+-- keys = {"lock_key","redisson_lock__channel:{lock_key}"}
+-- params = {0, 30000, "27ef269e-288d-41c4-b11c-6afc7c747e94:1"}
+if (redis.call('hexists', KEYS[1], ARGV[3]) == 0) then
+    return nil;
+end
+local counter = redis.call('hincrby', KEYS[1], ARGV[3], -1);
+if (counter > 0) then
+    redis.call('pexpire', KEYS[1], ARGV[2]);
+    return 0;
+else
+    redis.call('del', KEYS[1]);
+    redis.call('publish', KEYS[2], ARGV[1]);
+    return 1;
+end
+return nil;
+```
+
+上述脚本的意思是：
+- 如果以 lock_key 为键的 hash 对象中不存在以 27ef269e-288d-41c4-b11c-6afc7c747e94:1 为键的元素，直接返回 nil
+- （因为锁的可重入性）释放锁操作是将 27ef269e-288d-41c4-b11c-6afc7c747e94:1 对应元素的值 -1 并获取新值
+- 如果新值 > 0，意味着锁仍被持有，不能彻底删除，因此需要更新 TTL 为 30000 毫秒，返回 0；反之，意味着刚刚释放的锁是最后一把，直接执行 del 命令删除锁，并发布锁释放消息，返回 1。
+
+#### RedissonLock 子类
+
+RedissonLock 子类有 RedissonFairLock、RedissonReadLock、RedissonWriteLock。
+
+RedissonFairLock：
+
+```java
+RLock lock = redisson.getFairLock("fairLock_key");
+```
+
+RedissonFairLock 通过 getFairLock 获取，它和普通锁的区别在于使用了 ReentrantLock 中公平锁的特性，保证获取锁的顺序性。
+
+RedissonReadLock 和 RedissonWriteLock：
+
+```java
+RReadWriteLock rReadWriteLock = redisson.getReadWriteLock("readWriteLock_key");
+RLock readLock = rReadWriteLock.readLock();
+RLock writeLock = rReadWriteLock.writeLock();
+```
+
+RedissonReadLock 和 RedissonWriteLock 对应的是 Java 并发包中的 ReentrantReadWriteLock。它的特性是读锁共享，写锁互斥。
+
+#### RedissonMultiLock
+
+RedissonMultiLock 可以将多个 RLock 关联为一个联锁，每个 RLock 对象实例可以来自于不同的 Redisson 实例，只有所有的锁都上锁成功才算成功。
+
+```java
+RLock lock1 = redisson.getLock("lockformulti1");
+RLock lock2 = redisson.getLock("lockformulti2");
+RLock lock3 = redisson.getLock("lockformulti3");
+RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
+// locks: lock1 lock2 lock3
+boolean hasLock = lock.tryLock();
+if (hasLock) {
+    try {
+       // ...
+    } catch (Exception e) {
+        e.printStackTrace();
+    } finally {
+        lock.unlock();
+    }
+}
+```
+
+RedissonMultiLock 内部维护了一个 `final List<RLock> locks = new ArrayList<>();` 用于存储该 RedissonMultiLock 关联的 RLock 实例。加锁操作就是遍历整个 locks，逐个加锁，全部成功才加锁成功。释放锁操作同理。
+
+#### RedissonRedLock
+
+RedissonRedLock 是 RedissonMultiLock 的子类，该对象也可以用来将多个 RLock 关联为一个红锁，每个 RLock 实例可以来自于不同的 Redisson 实例。和 RedissonMultiLock 不同的是，RedissonRedLock 只需要在大部分节点上加锁成功就算成功。
+
+```java
+RLock lock1 = redisson.getLock("lockforred1");
+RLock lock2 = redisson.getLock("lockforred2");
+RLock lock3 = redisson.getLock("lockforred3");
+RedissonRedLock lock = new RedissonRedLock(lock1, lock2, lock3);
+// locks: lock1 lock2 lock3
+boolean hasLock = lock.tryLock();
+if (hasLock) {
+    try {
+        // ...
+    } catch (Exception e) {
+        e.printStackTrace();
+    } finally {
+        lock.unlock();
+    }
+}
+```
+
+#### 同步工具
+
+Redisson 还提供了 RSemaphore 和 RCountDownLatch，作为 Semaphore 和 CountDownLatch 的分布式实现。
+
+### 分布式服务
+
+简单看了一下，Redisson 提供了如注册中心、任务调度中心 之类的分布式服务。
+
+并不建议用，太过依赖 Redis 可能给 Redis 带来了过大的压力。毕竟 Redis 指令执行是单线程的，任务太多太重也可能让 Redis 产生瓶颈。

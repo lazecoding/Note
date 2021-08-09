@@ -1,3 +1,5 @@
+package personal.boot.redisclient;
+
 import org.redisson.Redisson;
 import org.redisson.RedissonMultiLock;
 import org.redisson.api.*;
@@ -36,9 +38,9 @@ public class RedissonDemo {
         // 数据操作
         // dataTypeOperate();
         // 锁操作
-        //locksOperate();
+        locksOperate();
         // 工具操作
-        toolOprate();
+        //toolOprate();
     }
 
     /**
@@ -365,8 +367,10 @@ public class RedissonDemo {
         lockOperate();
         // 公平锁
         fairLockOperate();
-        // RedLock
+        // MultiLock
         multiLockOperate();
+        // RedLock
+        redLockOperate();
         // 读写锁
         readWriteLockOperate();
         // Semaphore
@@ -457,9 +461,30 @@ public class RedissonDemo {
     }
 
     /**
-     * 锁操作 : MultiLock  RedLock
+     * 锁操作 : MultiLock
      */
     public static void multiLockOperate() {
+        RLock lock1 = redisson.getLock("lockformulti1");
+        RLock lock2 = redisson.getLock("lockformulti2");
+        RLock lock3 = redisson.getLock("lockformulti3");
+        RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
+        // locks: lock1 lock2 lock3
+        boolean hasLock = lock.tryLock();
+        if (hasLock) {
+            try {
+                System.out.println("MultiLock dothings");
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 锁操作 : RedLock
+     */
+    public static void redLockOperate() {
         RLock lock1 = redisson.getLock("lockforred1");
         RLock lock2 = redisson.getLock("lockforred2");
         RLock lock3 = redisson.getLock("lockforred3");
@@ -475,7 +500,6 @@ public class RedissonDemo {
                 lock.unlock();
             }
         }
-
     }
 
     /**
