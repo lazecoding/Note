@@ -5,3 +5,7 @@
 - [系统架构](https://github.com/lazecoding/Note/blob/main/note/articles/es/系统架构.md)
 - [执行过程](https://github.com/lazecoding/Note/blob/main/note/articles/es/执行过程.md)
 - [调优](https://github.com/lazecoding/Note/blob/main/note/articles/es/调优.md)
+
+## 源码阅读
+
+- [源码环境构建](https://github.com/lazecoding/Note/blob/main/note/articles/es/buildSourceCode.md)
