@@ -26,7 +26,7 @@
 - [OSS](https://github.com/lazecoding/Note/blob/main/note/articles/oss/README.md)
 
 ## 搜索引擎
-- [Elasticsearch](https://github.com/lazecoding/Note/blob/main/note/articles/es/Elasticsearch.md)
+- [Elasticsearch](https://github.com/lazecoding/Note/blob/main/note/articles/es/README.md)
 
 ## 中间件
 
