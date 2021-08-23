@@ -1,5 +1,11 @@
 # Transport 模块
 
+- 目录
+    - [Transport](#Transport)
+        - [传输模块](#传输模块)
+        - [HTTP 模块](#HTTP-模块)
+    - [如何接收用户请求](#如何接收用户请求)
+
 Transport 模块 是 ElasticSearch 的通信模型，分为传输模块和 HTTP 模块，它们都是基于 Netty 实现的，Netty 是一个 Java 实现的高性能异步网络通信库。
 
 ### Transport
@@ -20,26 +26,27 @@ ElasticSearch 将传输模块和 HTTP 模块封装到 NetworkModule 类中，该
 final RestController restController = actionModule.getRestController();
 // 初始化 NetworkModule 的传输模块和 HTTP 模块,加载 Transport、HttpServerTransport 和 TransportInterceptor
 final NetworkModule networkModule = new NetworkModule(settings, false, pluginsService.filterPlugins(NetworkPlugin.class),
-    threadPool, bigArrays, pageCacheRecycler, circuitBreakerService, namedWriteableRegistry, xContentRegistry,
-    networkService, restController);
+        threadPool, bigArrays, pageCacheRecycler, circuitBreakerService, namedWriteableRegistry, xContentRegistry,
+        networkService, restController);
 // ...
 // 获取  transport，用于初始化 transportService
 final Transport transport = networkModule.getTransportSupplier().get();
 // ...
 // 初始化 transportService，用于处理节点间通信
 final TransportService transportService = newTransportService(settings, transport, threadPool,
-    networkModule.getTransportInterceptor(), localNodeFactory, settingsModule.getClusterSettings(), taskHeaders);
+        networkModule.getTransportInterceptor(), localNodeFactory, settingsModule.getClusterSettings(), taskHeaders);
 // ...
 // 获取  httpServerTransport
 final HttpServerTransport httpServerTransport = newHttpTransport(networkModule);
 // ...
 // 注册 RestHandlers，处理客户端请求
-actionModule.initRestHandlers(() -> clusterService.state().nodes());
+        actionModule.initRestHandlers(() -> clusterService.state().nodes());
 ```
 
 NetworkModule 的构造函数主要处理了三件事情：注册 HTTP 模块、注册传输模块、注册拦截器。其中注册 HTTP 模块时，注入了 RestController，因为 HTTP 模块用于处理用户的 REST 请求。
 
 ```java
+// org/elasticsearch/common/network/NetworkModule.java#NetworkModule
 public NetworkModule(Settings settings, boolean transportClient, List<NetworkPlugin> plugins, ThreadPool threadPool,
                      BigArrays bigArrays,
                      PageCacheRecycler pageCacheRecycler,
@@ -77,7 +84,7 @@ public NetworkModule(Settings settings, boolean transportClient, List<NetworkPlu
 NetworkModule 内部组件的初始化是通过插件方式加载的。在其构造函数中传入 NetworkPlugin 列表，NetworkPlugin 是一个接口类， Netty4Plugin 是这个接口的实现，如下图所示：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4Plugin类图.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4Plugin类图.png" width="600px">
 </div>
 
 Netty4Plugin 提供了 getTransports 和 getHttpTransports 方法分别用来获取 Netty4Transport 和 Netty4HttpServerTransport。
@@ -87,6 +94,7 @@ Netty4Plugin 提供了 getTransports 和 getHttpTransports 方法分别用来获
  * 构建 Netty4Transport，用于 Transport 传输模块
  */
 @Override
+// org/elasticsearch/transport/Netty4Plugin.java#getTransports
 public Map<String, Supplier<Transport>> getTransports(Settings settings, ThreadPool threadPool, PageCacheRecycler pageCacheRecycler,
                                                       CircuitBreakerService circuitBreakerService,
                                                       NamedWriteableRegistry namedWriteableRegistry, NetworkService networkService) {
@@ -98,6 +106,7 @@ public Map<String, Supplier<Transport>> getTransports(Settings settings, ThreadP
  * 构建 Netty4HttpServerTransport，用于 HttpServerTransport HTTP 模块
  */
 @Override
+// org/elasticsearch/transport/Netty4Plugin.java#getHttpTransports
 public Map<String, Supplier<HttpServerTransport>> getHttpTransports(Settings settings, ThreadPool threadPool, BigArrays bigArrays,
                                                                     PageCacheRecycler pageCacheRecycler,
                                                                     CircuitBreakerService circuitBreakerService,
@@ -109,7 +118,7 @@ public Map<String, Supplier<HttpServerTransport>> getHttpTransports(Settings set
 }
 ```
 
-Netty4Transport 负责在 ElasticSearch 启动时初始化 client 和 server。
+- Netty4Transport 负责在 ElasticSearch 启动时初始化 client 和 server。
 
 ```java
 // org/elasticsearch/transport/netty4/Netty4Transport.java#doStart
@@ -137,18 +146,16 @@ protected void doStart() {
 }
 ```
 
-Netty4HttpServerTransport 负责在 ElasticSearch 启动时创建一个 HTTP Server 监听端口，当收到用户请求时，调用 dispatchRequest 对不同的请求执行相应的处理。
+- Netty4HttpServerTransport 负责在 ElasticSearch 启动时创建一个 HTTP Server 监听端口，当收到用户请求时，调用 dispatchRequest 对不同的请求执行相应的处理。
 
-上述内容实现了网络模块的加载，下面开始处理网络请求。
-
-### 传输模块
+#### 传输模块
 
 TransportService 是传输模块服务类，它主要提供两组方法：connectToNode 和 sendRequest。
 
 - connectToNode 用于节点间建立连接。
-- sendRequest 用于节点间通信。在发送请求的时候，最后一个参数定义了如何处理 Response， 即 TransportResponseHandler<T> handler。
+- sendRequest 用于节点间通信。在发送请求的时候，最后一个参数定义了如何处理 Response，即 TransportResponseHandler<T> handler。
 
-### HTTP 模块
+#### HTTP 模块
 
 HTTP 模块用于处理来自用户的 REST 请求，在 ElasticSearch 中，请求被称为 action。ActionModule 中注册了每种 action 对应的处理器。
 
@@ -197,3 +204,105 @@ public void registerHandler(RestRequest.Method method, String path, RestHandler 
 ```
 
 同时，每个 REST 请求处理类需要实现一个 prepareRequest 函数，用于在收到请求时，对请求执行验证工作等，当一个请求到来时，网络层调用 BaseRestHandler 对应的 action 子类的 handleRequest 来处理。
+
+### 如何接收用户请求
+
+具体点说，ElasticSearch 是如何接收请求的。
+
+Netty4HttpRequestHandler 是 ElasticSearch 的网络请求处理器。Netty4HttpRequestHandler 继承了 SimpleChannelInboundHandler，SimpleChannelInboundHandler 是 Netty 提供的用于处理网络消息的抽象类。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4HttpRequestHandler类图.png" width="600px">
+</div>
+
+Netty4HttpRequestHandler#channelRead0 会处理接收到的网络消息，它会调用 Netty4HttpServerTransport#incomingRequest，顾名思义这是个处理传入的 HTTP 请求的方法。
+
+```java
+// org/elasticsearch/http/netty4/Netty4HttpRequestHandler.java#channelRead0
+protected void channelRead0(ChannelHandlerContext ctx, HttpPipelinedRequest<FullHttpRequest> msg) {
+    Netty4HttpChannel channel = ctx.channel().attr(Netty4HttpServerTransport.HTTP_CHANNEL_KEY).get();
+    FullHttpRequest request = msg.getRequest();
+    final FullHttpRequest copiedRequest;
+    try {
+        copiedRequest =
+            new DefaultFullHttpRequest(
+                request.protocolVersion(),
+                request.method(),
+                request.uri(),
+                Unpooled.copiedBuffer(request.content()),
+                request.headers(),
+                request.trailingHeaders());
+    } finally {
+        // As we have copied the buffer, we can release the request
+        request.release();
+    }
+    Netty4HttpRequest httpRequest = new Netty4HttpRequest(copiedRequest, msg.getSequence());
+
+    if (request.decoderResult().isFailure()) {
+        Throwable cause = request.decoderResult().cause();
+        if (cause instanceof Error) {
+            ExceptionsHelper.maybeDieOnAnotherThread(cause);
+            serverTransport.incomingRequestError(httpRequest, channel, new Exception(cause));
+        } else {
+            serverTransport.incomingRequestError(httpRequest, channel, (Exception) cause);
+        }
+    } else {
+        serverTransport.incomingRequest(httpRequest, channel);
+    }
+}
+```
+
+REST 请求会走到 RestController#dispatchRequest 方法。tryAllHandlers 取出在 PathTrie 中所有和路由匹配的 handler 并尝试处理。之后就是具体的 handler 通过 prepareRequest 做请求处理的准备。
+
+```java
+// org/elasticsearch/rest/RestController.java#dispatchRequest
+@Override
+public void dispatchRequest(RestRequest request, RestChannel channel, ThreadContext threadContext) {
+    if (request.rawPath().equals("/favicon.ico")) {
+        handleFavicon(request.method(), request.uri(), channel);
+        return;
+    }
+    try {
+        tryAllHandlers(request, channel, threadContext);
+    } catch (Exception e) {
+        try {
+            channel.sendResponse(new BytesRestResponse(channel, e));
+        } catch (Exception inner) {
+            inner.addSuppressed(e);
+            logger.error(() ->
+                new ParameterizedMessage("failed to send failure response for uri [{}]", request.uri()), inner);
+        }
+    }
+}
+
+// org/elasticsearch/rest/RestController.java#dispatchRequest
+handler.handleRequest(request, responseChannel, client);
+```
+
+以 RestCreateIndexAction 为例，prepareRequest 做处理 action 前准备工作，最终调用 `client.admin().indices().create` 方法执行相关业务。
+
+```java
+@Override
+public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
+    final boolean includeTypeName = request.paramAsBoolean(INCLUDE_TYPE_NAME_PARAMETER,
+        DEFAULT_INCLUDE_TYPE_NAME_POLICY);
+
+    if (request.hasParam(INCLUDE_TYPE_NAME_PARAMETER)) {
+        deprecationLogger.deprecatedAndMaybeLog("create_index_with_types", TYPES_DEPRECATION_MESSAGE);
+    }
+
+    CreateIndexRequest createIndexRequest = new CreateIndexRequest(request.param("index"));
+
+    if (request.hasContent()) {
+        Map<String, Object> sourceAsMap = XContentHelper.convertToMap(request.requiredContent(), false,
+            request.getXContentType()).v2();
+        sourceAsMap = prepareMappings(sourceAsMap, includeTypeName);
+        createIndexRequest.source(sourceAsMap, LoggingDeprecationHandler.INSTANCE);
+    }
+
+    createIndexRequest.timeout(request.paramAsTime("timeout", createIndexRequest.timeout()));
+    createIndexRequest.masterNodeTimeout(request.paramAsTime("master_timeout", createIndexRequest.masterNodeTimeout()));
+    createIndexRequest.waitForActiveShards(ActiveShardCount.parseString(request.param("wait_for_active_shards")));
+    return channel -> client.admin().indices().create(createIndexRequest, new RestToXContentListener<>(channel));
+}
+```
