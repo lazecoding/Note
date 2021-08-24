@@ -84,7 +84,7 @@ public NetworkModule(Settings settings, boolean transportClient, List<NetworkPlu
 NetworkModule 内部组件的初始化是通过插件方式加载的。在其构造函数中传入 NetworkPlugin 列表，NetworkPlugin 是一个接口类， Netty4Plugin 是这个接口的实现，如下图所示：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4Plugin类图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4Plugin类图.png" width="400px">
 </div>
 
 Netty4Plugin 提供了 getTransports 和 getHttpTransports 方法分别用来获取 Netty4Transport 和 Netty4HttpServerTransport。
