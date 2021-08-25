@@ -1009,6 +1009,7 @@ protected Node(
         resourcesToClose.addAll(pluginLifecycleComponents);
         resourcesToClose.add(injector.getInstance(PeerRecoverySourceService.class));
         this.pluginLifecycleComponents = Collections.unmodifiableList(pluginLifecycleComponents);
+        // 进一步初始化 node client ：将 action 对应的 handler 缓存在 map 中；保存 Node Id;注入 remoteClusterService
         client.initialize(injector.getInstance(new Key<Map<ActionType, TransportAction>>() {
             }),
             () -> clusterService.localNode().getId(), transportService.getRemoteClusterService());
@@ -1041,7 +1042,8 @@ Node 构造函数流程：
 8. 初始化 RestController 和 NetworkModule。
 9. 绑定处理各种服务的实例,这里是最核心的地方,也是 Elasticsearch 能处理各种服务的核心。
 10. 利用 Guice 将各种模块以及服务(xxxService)注入到 node 环境中。
-11. 注册 RestHandlers，处理客户端请求。
+11. 进一步初始化 node client ：将 action 对应的 handler 缓存在 map 中；保存 Node Id;注入 remoteClusterService。
+12. 注册 RestHandlers，处理客户端请求。
 
 
 > 完成 node 实例化，意味着 Bootstrap#setup 处理完毕，下面准备 Bootstrap#start。
