@@ -12,3 +12,4 @@
 - [启动流程](https://github.com/lazecoding/Note/blob/main/note/articles/es/doStart.md)
 - [Transport 模块](https://github.com/lazecoding/Note/blob/main/note/articles/es/transport.md)
 - [ElasticSearch 数据模型](https://github.com/lazecoding/Note/blob/main/note/articles/es/dataModel.md)
+- [写入 Index 流程](https://github.com/lazecoding/Note/blob/main/note/articles/es/writeIndex.md)
