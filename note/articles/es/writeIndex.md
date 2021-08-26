@@ -101,7 +101,7 @@ TransportAction 是最终的请求处理类，每种 action 都实现了各自�
 TransportCreateIndexAction 是 TransportAction 的实现之一，类图如下：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/TransportCreateIndexAction类图.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/TransportCreateIndexAction类图.png" width="600px">
 </div>
 
 创建索引的过程，从 ElasticSearch 集群上来说就是写入 Index 元数据的过程，这一操作由 Master 节点完成。因此，TransportCreateIndexAction 继承了 TransportMasterNodeAction，，并实现了 materOperation 方法。
