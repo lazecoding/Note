@@ -1,9 +1,9 @@
 # 写入 Index 流程
 
 - 目录
-    - [RestCreateIndexAction](#RestCreateIndexAction)
-    - [TransportCreateIndexAction](#TransportCreateIndexAction)
-    - [总结](#总结)
+  - [RestCreateIndexAction](#RestCreateIndexAction)
+  - [TransportCreateIndexAction](#TransportCreateIndexAction)
+  - [总结](#总结)
 
 Index 是一组同构 Document 的集合，分布于不同节点上的不同分片中，它的写入操作包括但不限于 create、delete、close、open 等。
 
@@ -101,7 +101,7 @@ TransportAction 是最终的请求处理类，每种 action 都实现了各自�
 TransportCreateIndexAction 是 TransportAction 的实现之一，类图如下：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/TransportCreateIndexAction类图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/TransportCreateIndexAction类图.png" width="400px">
 </div>
 
 创建索引的过程，从 ElasticSearch 集群上来说就是写入 Index 元数据的过程，这一操作由 Master 节点完成。因此，TransportCreateIndexAction 继承了 TransportMasterNodeAction，，并实现了 materOperation 方法。
@@ -341,34 +341,176 @@ IndexCreationTask(Logger logger, AllocationService allocationService, CreateInde
 
 IndexCreationTask 存储了写入 Index 需要的相关属性和 priority （优先级）参数，CreateIndex 对应的 priority 为 1。
 
+- UpdateTask
+
+`taskBatcher.new UpdateTask(config.priority(), source, e.getKey(), safe(e.getValue(), supplier), executor)` 将 IndexCreationTask 包装成 UpdateTask。
+
+UpdateTask 类图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/UpdateTask类图.png" width="400px">
+</div>
+
+run 方法：
+
+```java
+// org/elasticsearch/cluster/service/TaskBatcher.java#run
+public void run() {
+    runIfNotProcessed(this);
+}
+```
+UpdateTask 的 run 方法继承自 TaskBatcher，执行 ` runIfNotProcessed(this);`。
+
+- TaskBatcher#runIfNotProcessed
+
+```java
+// org/elasticsearch/cluster/service/TaskBatcher.java#runIfNotProcessed
+void runIfNotProcessed(BatchedTask updateTask) {
+    // 如果该任务已经被处理，不需要再次处理； processed 是个原子常量
+    // if this task is already processed, it shouldn't execute other tasks with same batching key that arrived later,
+    // to give other tasks with different batching key a chance to execute.
+    if (updateTask.processed.get() == false) {
+        final List<BatchedTask> toExecute = new ArrayList<>();
+        final Map<String, List<BatchedTask>> processTasksBySource = new HashMap<>();
+        // 同步处理批处理键（同步锁），将需要执行的任务放到 toExecute 中
+        synchronized (tasksPerBatchingKey) {
+            LinkedHashSet<BatchedTask> pending = tasksPerBatchingKey.remove(updateTask.batchingKey);
+            if (pending != null) {
+                for (BatchedTask task : pending) {
+                    if (task.processed.getAndSet(true) == false) {
+                        logger.trace("will process {}", task);
+                        toExecute.add(task);
+                        processTasksBySource.computeIfAbsent(task.source, s -> new ArrayList<>()).add(task);
+                    } else {
+                        logger.trace("skipping {}, already processed", task);
+                    }
+                }
+            }
+        }
+        
+        // 如果存在带执行的任务
+        if (toExecute.isEmpty() == false) {
+            final String tasksSummary = processTasksBySource.entrySet().stream().map(entry -> {
+                String tasks = updateTask.describeTasks(entry.getValue());
+                return tasks.isEmpty() ? entry.getKey() : entry.getKey() + "[" + tasks + "]";
+            }).reduce((s1, s2) -> s1 + ", " + s2).orElse("");
+            // 执行任务
+            run(updateTask.batchingKey, toExecute, tasksSummary);
+        }
+    }
+}
+```
+
+此处 run 方法执行的是 ` MasterService.java#run`。
+
+- MasterService.java#run
+
+```java
+// org/elasticsearch/cluster/service/MasterService.java#run
+protected vo#run(Object batchingKey, List<? extends BatchedTask> tasks, String tasksSummary) {
+    ClusterStateTaskExecutor<Object> taskExecutor = (ClusterStateTaskExecutor<Object>) batchingKey;
+    List<UpdateTask> updateTasks = (List<UpdateTask>) tasks;
+    runTasks(new TaskInputs(taskExecutor, updateTasks, tasksSummary));
+}
+```
+- MasterService#runTasks
+
+```java
+// org/elasticsearch/cluster/service/MasterService.java#runTasks
+private void runTasks(TaskInputs taskInputs) {
+    final String summary = taskInputs.summary;
+    if (!lifecycle.started()) {
+        logger.debug("processing [{}]: ignoring, master service not started", summary);
+        return;
+    }
+
+    logger.debug("executing cluster state update for [{}]", summary);
+    final ClusterState previousClusterState = state();
+    // 判断本节点是否是 Master 节点
+    if (!previousClusterState.nodes().isLocalNodeElectedMaster() && taskInputs.runOnlyWhenMaster()) {
+        logger.debug("failing [{}]: local node is no longer master", summary);
+        taskInputs.onNoLongerMaster();
+        return;
+    }
+
+    final long computationStartTime = threadPool.relativeTimeInMillis();
+    final TaskOutputs taskOutputs = calculateTaskOutputs(taskInputs, previousClusterState);
+    taskOutputs.notifyFailedTasks();
+    final TimeValue computationTime = getTimeSince(computationStartTime);
+    logExecutionTime(computationTime, "compute cluster state update", summary);
+
+    if (taskOutputs.clusterStateUnchanged()) {
+        final long notificationStartTime = threadPool.relativeTimeInMillis();
+        taskOutputs.notifySuccessfulTasksOnUnchangedClusterState();
+        final TimeValue executionTime = getTimeSince(notificationStartTime);
+        logExecutionTime(executionTime, "notify listeners on unchanged cluster state", summary);
+    } else {
+        final ClusterState newClusterState = taskOutputs.newClusterState;
+        if (logger.isTraceEnabled()) {
+            logger.trace("cluster state updated, source [{}]\n{}", summary, newClusterState);
+        } else {
+            logger.debug("cluster state updated, version [{}], source [{}]", newClusterState.version(), summary);
+        }
+        final long publicationStartTime = threadPool.relativeTimeInMillis();
+        try {
+        	// 获取 ClusterChangedEvent，用于发布集群状态更新事件
+            ClusterChangedEvent clusterChangedEvent = new ClusterChangedEvent(summary, newClusterState, previousClusterState);
+            // new cluster state, notify all listeners
+            final DiscoveryNodes.Delta nodesDelta = clusterChangedEvent.nodesDelta();
+            if (nodesDelta.hasChanges() && logger.isInfoEnabled()) {
+                String nodesDeltaSummary = nodesDelta.shortSummary();
+                if (nodesDeltaSummary.length() > 0) {
+                    logger.info("{}, term: {}, version: {}, delta: {}",
+                        summary, newClusterState.term(), newClusterState.version(), nodesDeltaSummary);
+                }
+            }
+
+            logger.debug("publishing cluster state version [{}]", newClusterState.version());
+            // 发布集群状态更新事件
+            publish(clusterChangedEvent, taskOutputs, publicationStartTime);
+        } catch (Exception e) {
+            handleException(summary, publicationStartTime, newClusterState, e);
+        }
+    }
+}
+```
+
+该方法的主要行为是发布 ClusterChangedEvent 事件，通知其他节点集群状态发生变化。
+
+DeBug 截图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/MasterService.runTasks-DEBUG.png" width="600px">
+</div>
+
 - MasterService#submitStateUpdateTasks
 
 ```java
 // org/elasticsearch/cluster/service/MasterService.java#submitStateUpdateTasks
 public <T> void submitStateUpdateTasks(final String source,
-                                       final Map<T, ClusterStateTaskListener> tasks, final ClusterStateTaskConfig config,
-                                       final ClusterStateTaskExecutor<T> executor) {
-    if (!lifecycle.started()) {
+final Map<T, ClusterStateTaskListener> tasks, final ClusterStateTaskConfig config,
+final ClusterStateTaskExecutor<T> executor) {
+        if (!lifecycle.started()) {
         return;
-    }
-    final ThreadContext threadContext = threadPool.getThreadContext();
-    final Supplier<ThreadContext.StoredContext> supplier = threadContext.newRestorableContext(true);
-    try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
+        }
+final ThreadContext threadContext = threadPool.getThreadContext();
+final Supplier<ThreadContext.StoredContext> supplier = threadContext.newRestorableContext(true);
+        try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
         threadContext.markAsSystemContext();
         // 对 IndexCreationTask 做安全校验并转变为 UpdateTask，UpdateTask 是个包含优先级的任务，是 PrioritizedRunnable 的子类
         List<Batcher.UpdateTask> safeTasks = tasks.entrySet().stream()
-            .map(e -> taskBatcher.new UpdateTask(config.priority(), source, e.getKey(), safe(e.getValue(), supplier), executor))
-            .collect(Collectors.toList());
+        .map(e -> taskBatcher.new UpdateTask(config.priority(), source, e.getKey(), safe(e.getValue(), supplier), executor))
+        .collect(Collectors.toList());
         // 批量提交任务
         taskBatcher.submitTasks(safeTasks, config.timeout());
-    } catch (EsRejectedExecutionException e) {
+        } catch (EsRejectedExecutionException e) {
         // ignore cases where we are shutting down..., there is really nothing interesting
         // to be done here...
         if (!lifecycle.stoppedOrClosed()) {
-            throw e;
+        throw e;
         }
-    }
-}
+        }
+        }
 ```
 
 该方法对 IndexCreationTask 做安全校验并转变为 UpdateTask，UpdateTask 是个包含优先级的任务，是 PrioritizedRunnable 的子类。之后通过 `taskBatcher.submitTasks(safeTasks, config.timeout());` 继续提交任务，经过一些校验，最终调用 execute 执行任务，完成 CreateIndex。
