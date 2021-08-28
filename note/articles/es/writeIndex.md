@@ -359,7 +359,7 @@ public void run() {
     runIfNotProcessed(this);
 }
 ```
-UpdateTask 的 run 方法继承自 TaskBatcher，执行 ` runIfNotProcessed(this);`。
+UpdateTask 的 run 方法继承自 BatchedTask，BatchedTask 是 TaskBatcher 的内部类，run 方法执行来自 `TaskBatcher#runIfNotProcessed`。
 
 - TaskBatcher#runIfNotProcessed
 
@@ -388,7 +388,7 @@ void runIfNotProcessed(BatchedTask updateTask) {
             }
         }
         
-        // 如果存在带执行的任务
+        // 如果存在等待执行的任务
         if (toExecute.isEmpty() == false) {
             final String tasksSummary = processTasksBySource.entrySet().stream().map(entry -> {
                 String tasks = updateTask.describeTasks(entry.getValue());
@@ -401,18 +401,21 @@ void runIfNotProcessed(BatchedTask updateTask) {
 }
 ```
 
-此处 run 方法执行的是 ` MasterService.java#run`。
+此处 run 方法执行的是 `Batcher#run`，Batcher 是 MasterService 的内部类，Batcher 继承了 TaskBatcher。
 
-- MasterService.java#run
+- Batcher.java$1#run
 
 ```java
-// org/elasticsearch/cluster/service/MasterService.java#run
+// org/elasticsearch/cluster/service/Batcher.java$1#run
 protected vo#run(Object batchingKey, List<? extends BatchedTask> tasks, String tasksSummary) {
     ClusterStateTaskExecutor<Object> taskExecutor = (ClusterStateTaskExecutor<Object>) batchingKey;
     List<UpdateTask> updateTasks = (List<UpdateTask>) tasks;
     runTasks(new TaskInputs(taskExecutor, updateTasks, tasksSummary));
 }
 ```
+
+runTasks 是 MasterService 的方法。
+
 - MasterService#runTasks
 
 ```java
