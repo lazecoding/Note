@@ -48,43 +48,43 @@ NetworkModule 的构造函数主要处理了三件事情：注册 HTTP 模块、
 ```java
 // org/elasticsearch/common/network/NetworkModule.java#NetworkModule
 public NetworkModule(Settings settings, boolean transportClient, List<NetworkPlugin> plugins, ThreadPool threadPool,
-                     BigArrays bigArrays,
-                     PageCacheRecycler pageCacheRecycler,
-                     CircuitBreakerService circuitBreakerService,
-                     NamedWriteableRegistry namedWriteableRegistry,
-                     NamedXContentRegistry xContentRegistry,
-                     NetworkService networkService, HttpServerTransport.Dispatcher dispatcher) {
-    this.settings = settings;
-    this.transportClient = transportClient;
-    for (NetworkPlugin plugin : plugins) {
+        BigArrays bigArrays,
+        PageCacheRecycler pageCacheRecycler,
+        CircuitBreakerService circuitBreakerService,
+        NamedWriteableRegistry namedWriteableRegistry,
+        NamedXContentRegistry xContentRegistry,
+        NetworkService networkService, HttpServerTransport.Dispatcher dispatcher) {
+        this.settings = settings;
+        this.transportClient = transportClient;
+        for (NetworkPlugin plugin : plugins) {
         Map<String, Supplier<HttpServerTransport>> httpTransportFactory = plugin.getHttpTransports(settings, threadPool, bigArrays,
-            pageCacheRecycler, circuitBreakerService, xContentRegistry, networkService, dispatcher);
+        pageCacheRecycler, circuitBreakerService, xContentRegistry, networkService, dispatcher);
         if (transportClient == false) {
-            for (Map.Entry<String, Supplier<HttpServerTransport>> entry : httpTransportFactory.entrySet()) {
-                // 注册 HTTP 模块
-                registerHttpTransport(entry.getKey(), entry.getValue());
-            }
+        for (Map.Entry<String, Supplier<HttpServerTransport>> entry : httpTransportFactory.entrySet()) {
+        // 注册 HTTP 模块
+        registerHttpTransport(entry.getKey(), entry.getValue());
+        }
         }
         Map<String, Supplier<Transport>> transportFactory = plugin.getTransports(settings, threadPool, pageCacheRecycler,
-            circuitBreakerService, namedWriteableRegistry, networkService);
+        circuitBreakerService, namedWriteableRegistry, networkService);
         for (Map.Entry<String, Supplier<Transport>> entry : transportFactory.entrySet()) {
-            // 注册传输模块
-            registerTransport(entry.getKey(), entry.getValue());
+        // 注册传输模块
+        registerTransport(entry.getKey(), entry.getValue());
         }
         List<TransportInterceptor> transportInterceptors = plugin.getTransportInterceptors(namedWriteableRegistry,
-            threadPool.getThreadContext());
+        threadPool.getThreadContext());
         for (TransportInterceptor interceptor : transportInterceptors) {
-            // 注册拦截器
-            registerTransportInterceptor(interceptor);
+        // 注册拦截器
+        registerTransportInterceptor(interceptor);
         }
-    }
-}
+        }
+        }
 ```
 
 NetworkModule 内部组件的初始化是通过插件方式加载的。在其构造函数中传入 NetworkPlugin 列表，NetworkPlugin 是一个接口类， Netty4Plugin 是这个接口的实现，如下图所示：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4Plugin类图.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Netty4Plugin类图.png" width="600px">
 </div>
 
 Netty4Plugin 提供了 getTransports 和 getHttpTransports 方法分别用来获取 Netty4Transport 和 Netty4HttpServerTransport。
@@ -154,6 +154,228 @@ TransportService 是传输模块服务类，它主要提供两组方法：connec
 
 - connectToNode 用于节点间建立连接。
 - sendRequest 用于节点间通信。在发送请求的时候，最后一个参数定义了如何处理 Response，即 TransportResponseHandler<T> handler。
+
+TransportService 在 Node 初始化阶段被初始化，代码如下：
+
+```java
+// org/elasticsearch/node/Node.java#Node
+// 获取  transport，用于初始化 transportService
+final Transport transport = networkModule.getTransportSupplier().get();
+//...
+// 初始化 transportService，用于处理节点间通信
+final TransportService transportService = newTransportService(settings, transport, threadPool,
+    networkModule.getTransportInterceptor(), localNodeFactory, settingsModule.getClusterSettings(), taskHeaders);
+```
+
+TransportService 构造函数：
+
+```java
+// org/elasticsearch/transport/TransportService.java#TransportService
+public TransportService(Settings settings, Transport transport, ThreadPool threadPool, TransportInterceptor transportInterceptor,
+                        Function<BoundTransportAddress, DiscoveryNode> localNodeFactory, @Nullable ClusterSettings clusterSettings,
+                        Set<String> taskHeaders, ConnectionManager connectionManager) {
+    // The only time we do not want to validate node connections is when this is a transport client using the simple node sampler
+    this.validateConnections = TransportClient.CLIENT_TYPE.equals(settings.get(Client.CLIENT_TYPE_SETTING_S.getKey())) == false ||
+        TransportClient.CLIENT_TRANSPORT_SNIFF.get(settings);
+    // transport，这里注入的是 Netty4Transport 子类
+    this.transport = transport;
+    this.threadPool = threadPool;
+    this.localNodeFactory = localNodeFactory;
+    this.connectionManager = connectionManager;
+    this.clusterName = ClusterName.CLUSTER_NAME_SETTING.get(settings);
+    setTracerLogInclude(TransportSettings.TRACE_LOG_INCLUDE_SETTING.get(settings));
+    setTracerLogExclude(TransportSettings.TRACE_LOG_EXCLUDE_SETTING.get(settings));
+    tracerLog = Loggers.getLogger(logger, ".tracer");
+    taskManager = createTaskManager(settings, threadPool, taskHeaders);
+    this.interceptor = transportInterceptor;
+    this.asyncSender = interceptor.interceptSender(this::sendRequestInternal);
+    this.connectToRemoteCluster = RemoteClusterService.ENABLE_REMOTE_CLUSTERS.get(settings);
+    remoteClusterService = new RemoteClusterService(settings, this);
+    responseHandlers = transport.getResponseHandlers();
+    if (clusterSettings != null) {
+        clusterSettings.addSettingsUpdateConsumer(TransportSettings.TRACE_LOG_INCLUDE_SETTING, this::setTracerLogInclude);
+        clusterSettings.addSettingsUpdateConsumer(TransportSettings.TRACE_LOG_EXCLUDE_SETTING, this::setTracerLogExclude);
+        if (connectToRemoteCluster) {
+            remoteClusterService.listenForUpdates(clusterSettings);
+        }
+    }
+    // 注册请求处理器
+    registerRequestHandler(
+        HANDSHAKE_ACTION_NAME,
+        ThreadPool.Names.SAME,
+        false, false,
+        HandshakeRequest::new,
+        (request, channel, task) -> channel.sendResponse(
+            new HandshakeResponse(localNode, clusterName, localNode.getVersion())));
+}
+```
+
+- 构造函数注入了SecurityNetty4Transport，它是 Netty4Transport 的子类，这意味着 ElasticSearch 通信模块是基于 Netty 实现的。
+
+- Netty4Transport
+
+Netty 基于拦截器模式实现的 NIO 通讯框架，需要为 Channel 绑定处理器。
+
+Netty4Transport#initChannel：
+
+```java
+@Override
+protected void initChannel(Channel ch) throws Exception {
+    addClosedExceptionLogger(ch);
+    Netty4TcpChannel nettyTcpChannel = new Netty4TcpChannel(ch, true, name, ch.newSucceededFuture());
+    ch.attr(CHANNEL_KEY).set(nettyTcpChannel);
+    ch.pipeline().addLast("logging", new ESLoggingHandler());
+    // 数据包大小处理器
+    ch.pipeline().addLast("size", new Netty4SizeHeaderFrameDecoder());
+    // Message 处理器
+    ch.pipeline().addLast("dispatcher", new Netty4MessageChannelHandler(Netty4Transport.this));
+    serverAcceptedChannel(nettyTcpChannel);
+}
+```
+
+这里主要的 handler 是 Netty4SizeHeaderFrameDecoder 和 Netty4MessageChannelHandler。顾名思义，Netty4SizeHeaderFrameDecoder 是数据包大小处理器，Netty4MessageChannelHandler 是 Message 处理器。
+
+- Netty4MessageChannelHandler
+
+MessageChannelHandler 在 ChannelPipeline 中被命名为 "dispatcher"，这说明它负责决定接收到的数据包该交给那个具体的业务逻辑去处理。
+
+```java
+@Override
+// org/elasticsearch/transport/netty4/Netty4MessageChannelHandler.java#channelRead
+// 接收网络消息
+public void channelRead(ChannelHandlerContext ctx, Object msg) {
+    assert Transports.assertTransportThread();
+    assert msg instanceof ByteBuf : "Expected message type ByteBuf, found: " + msg.getClass();
+
+    final ByteBuf buffer = (ByteBuf) msg;
+    try {
+        Channel channel = ctx.channel();
+        Attribute<Netty4TcpChannel> channelAttribute = channel.attr(Netty4Transport.CHANNEL_KEY);
+        // 处理已解码的入站消息
+        transport.inboundMessage(channelAttribute.get(), Netty4Utils.toBytesReference(buffer));
+    } finally {
+        buffer.release();
+    }
+}
+
+// org/elasticsearch/transport/InboundHandler.java#inboundMessage
+void inboundMessage(TcpChannel channel, BytesReference message) throws Exception {
+    channel.getChannelStats().markAccessed(threadPool.relativeTimeInMillis());
+    // 日志
+    TransportLogger.logInboundMessage(channel, message);
+    readBytesMetric.inc(message.length() + TcpHeader.MARKER_BYTES_SIZE + TcpHeader.MESSAGE_LENGTH_SIZE);
+    // message 长度为 0，进行 Ping 操作，保活
+    if (message.length() != 0) {
+        // 处理接收的消息
+        messageReceived(message, channel);
+    } else {
+        keepAlive.receiveKeepAlive(channel);
+    }
+}
+```
+
+`Netty4MessageChannelHandler#channelRead` 接收来自其他 Node 的消息，经过转码，进行请求处理。如果 message 长度为 0，意味着这个一个 ping 操作，用于保活；如果 message 包含内容，则处理接收的消息。
+
+- InboundHandler#handleRequest
+
+```java
+// org/elasticsearch/transport/InboundHandler.java#handleRequest
+private void handleRequest(TcpChannel channel, InboundMessage.Request message, int messageLengthBytes) {
+    final Set<String> features = message.getFeatures();
+    // 获取 actionName
+    final String action = message.getActionName();
+    final long requestId = message.getRequestId();
+    // 获取流
+    final StreamInput stream = message.getStreamInput();
+    final Version version = message.getVersion();
+    TransportChannel transportChannel = null;
+    try {
+        messageListener.onRequestReceived(requestId, action);
+        // 是否是握手请求
+        if (message.isHandshake()) {
+            // 握手
+            handshaker.handleHandshake(version, features, channel, requestId, stream);
+        } else {
+            // 获取 action 对应的请求处理器
+            final RequestHandlerRegistry reg = getRequestHandler(action);
+            if (reg == null) {
+                throw new ActionNotFoundTransportException(action);
+            }
+            CircuitBreaker breaker = circuitBreakerService.getBreaker(CircuitBreaker.IN_FLIGHT_REQUESTS);
+            if (reg.canTripCircuitBreaker()) {
+                breaker.addEstimateBytesAndMaybeBreak(messageLengthBytes, "<transport_request>");
+            } else {
+                breaker.addWithoutBreaking(messageLengthBytes);
+            }
+            transportChannel = new TcpTransportChannel(outboundHandler, channel, action, requestId, version, features,
+                circuitBreakerService, messageLengthBytes, message.isCompress());
+            // 获取 request
+            final TransportRequest request = reg.newRequest(stream);
+            request.remoteAddress(new TransportAddress(channel.getRemoteAddress()));
+            // in case we throw an exception, i.e. when the limit is hit, we don't want to verify
+            final int nextByte = stream.read();
+            // calling read() is useful to make sure the message is fully read, even if there some kind of EOS marker
+            if (nextByte != -1) {
+                throw new IllegalStateException("Message not fully read (request) for requestId [" + requestId + "], action [" + action
+                    + "], available [" + stream.available() + "]; resetting");
+            }
+            // 通过线程池执行请求处理器 ：RequestHandler 实现了 Runnable。
+            threadPool.executor(reg.getExecutor()).execute(new RequestHandler(reg, request, transportChannel));
+        }
+    } catch (Exception e) {
+        // the circuit breaker tripped
+        if (transportChannel == null) {
+            transportChannel = new TcpTransportChannel(outboundHandler, channel, action, requestId, version, features,
+                circuitBreakerService, 0, message.isCompress());
+        }
+        try {
+            transportChannel.sendResponse(e);
+        } catch (IOException inner) {
+            inner.addSuppressed(e);
+            logger.warn(() -> new ParameterizedMessage("Failed to send error message back to client for action [{}]", action), inner);
+        }
+    }
+}
+```
+
+handleRequest 解析 message，获取请求处理器和组织请求属性，通过 threadPool 执行处理。RequestHandler 继承了 AbstractRunnable，实现了 Runnable 接口。
+
+- RequestHandler#run
+
+RequestHandler 的 run 方法很简单，仅仅是调用了 `TransportRequestHandler#messageReceived`。TransportRequestHandler 是一个接口类，messageReceived 是它唯一的方法，即 TransportRequestHandler 是一个 `函数式接口`。
+
+TransportRequestHandler 接口类：
+
+```java
+// org/elasticsearch/transport/TransportRequestHandler.java
+public interface TransportRequestHandler<T extends TransportRequest> {
+
+    void messageReceived(T request, TransportChannel channel, Task task) throws Exception;
+}
+```
+
+- PublicationTransportHandler
+
+以 PublicationTransportHandler 为例，它在构造函数中注册了一些请求处理器。
+
+```java
+public PublicationTransportHandler(TransportService transportService, NamedWriteableRegistry namedWriteableRegistry,
+                                   Function<PublishRequest, PublishWithJoinResponse> handlePublishRequest,
+                                   BiConsumer<ApplyCommitRequest, ActionListener<Void>> handleApplyCommit) {
+    this.transportService = transportService;
+    this.namedWriteableRegistry = namedWriteableRegistry;
+    this.handlePublishRequest = handlePublishRequest;
+
+    // 注册请求处理器
+    // PUBLISH_STATE_ACTION_NAME：internal:cluster/coordination/publish_state
+    // TransportRequestHandler#messageReceived 的实现： (request, channel, task) -> channel.sendResponse(handleIncomingPublishRequest(request)) 
+    transportService.registerRequestHandler(PUBLISH_STATE_ACTION_NAME, ThreadPool.Names.GENERIC, false, false,
+        BytesTransportRequest::new, (request, channel, task) -> channel.sendResponse(handleIncomingPublishRequest(request)));
+
+    // ...
+}
+```
+`PUBLISH_STATE_ACTION_NAME` 常量的值是 `internal:cluster/coordination/publish_state`，表示发布集群状态；handleIncomingPublishRequest 用于处理该请求。
 
 #### HTTP 模块
 
@@ -284,25 +506,25 @@ handler.handleRequest(request, responseChannel, client);
 ```java
 @Override
 public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
-    final boolean includeTypeName = request.paramAsBoolean(INCLUDE_TYPE_NAME_PARAMETER,
+final boolean includeTypeName = request.paramAsBoolean(INCLUDE_TYPE_NAME_PARAMETER,
         DEFAULT_INCLUDE_TYPE_NAME_POLICY);
 
-    if (request.hasParam(INCLUDE_TYPE_NAME_PARAMETER)) {
+        if (request.hasParam(INCLUDE_TYPE_NAME_PARAMETER)) {
         deprecationLogger.deprecatedAndMaybeLog("create_index_with_types", TYPES_DEPRECATION_MESSAGE);
-    }
+        }
 
-    CreateIndexRequest createIndexRequest = new CreateIndexRequest(request.param("index"));
+        CreateIndexRequest createIndexRequest = new CreateIndexRequest(request.param("index"));
 
-    if (request.hasContent()) {
+        if (request.hasContent()) {
         Map<String, Object> sourceAsMap = XContentHelper.convertToMap(request.requiredContent(), false,
-            request.getXContentType()).v2();
+        request.getXContentType()).v2();
         sourceAsMap = prepareMappings(sourceAsMap, includeTypeName);
         createIndexRequest.source(sourceAsMap, LoggingDeprecationHandler.INSTANCE);
-    }
+        }
 
-    createIndexRequest.timeout(request.paramAsTime("timeout", createIndexRequest.timeout()));
-    createIndexRequest.masterNodeTimeout(request.paramAsTime("master_timeout", createIndexRequest.masterNodeTimeout()));
-    createIndexRequest.waitForActiveShards(ActiveShardCount.parseString(request.param("wait_for_active_shards")));
-    return channel -> client.admin().indices().create(createIndexRequest, new RestToXContentListener<>(channel));
-}
+        createIndexRequest.timeout(request.paramAsTime("timeout", createIndexRequest.timeout()));
+        createIndexRequest.masterNodeTimeout(request.paramAsTime("master_timeout", createIndexRequest.masterNodeTimeout()));
+        createIndexRequest.waitForActiveShards(ActiveShardCount.parseString(request.param("wait_for_active_shards")));
+        return channel -> client.admin().indices().create(createIndexRequest, new RestToXContentListener<>(channel));
+        }
 ```
