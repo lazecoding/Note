@@ -3,6 +3,7 @@
 - 目录
   - [RestCreateIndexAction](#RestCreateIndexAction)
   - [TransportCreateIndexAction](#TransportCreateIndexAction)
+  - [publish](#publish)
   - [总结](#总结)
 
 Index 是一组同构 Document 的集合，分布于不同节点上的不同分片中，它的写入操作包括但不限于 create、delete、close、open 等。
@@ -491,32 +492,288 @@ DeBug 截图：
 ```java
 // org/elasticsearch/cluster/service/MasterService.java#submitStateUpdateTasks
 public <T> void submitStateUpdateTasks(final String source,
-final Map<T, ClusterStateTaskListener> tasks, final ClusterStateTaskConfig config,
-final ClusterStateTaskExecutor<T> executor) {
-        if (!lifecycle.started()) {
+                                       final Map<T, ClusterStateTaskListener> tasks, final ClusterStateTaskConfig config,
+                                       final ClusterStateTaskExecutor<T> executor) {
+    if (!lifecycle.started()) {
         return;
-        }
-final ThreadContext threadContext = threadPool.getThreadContext();
-final Supplier<ThreadContext.StoredContext> supplier = threadContext.newRestorableContext(true);
-        try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
+    }
+    final ThreadContext threadContext = threadPool.getThreadContext();
+    final Supplier<ThreadContext.StoredContext> supplier = threadContext.newRestorableContext(true);
+    try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
         threadContext.markAsSystemContext();
         // 对 IndexCreationTask 做安全校验并转变为 UpdateTask，UpdateTask 是个包含优先级的任务，是 PrioritizedRunnable 的子类
         List<Batcher.UpdateTask> safeTasks = tasks.entrySet().stream()
-        .map(e -> taskBatcher.new UpdateTask(config.priority(), source, e.getKey(), safe(e.getValue(), supplier), executor))
-        .collect(Collectors.toList());
+            .map(e -> taskBatcher.new UpdateTask(config.priority(), source, e.getKey(), safe(e.getValue(), supplier), executor))
+            .collect(Collectors.toList());
         // 批量提交任务
         taskBatcher.submitTasks(safeTasks, config.timeout());
-        } catch (EsRejectedExecutionException e) {
+    } catch (EsRejectedExecutionException e) {
         // ignore cases where we are shutting down..., there is really nothing interesting
         // to be done here...
         if (!lifecycle.stoppedOrClosed()) {
-        throw e;
+            throw e;
         }
-        }
-        }
+    }
+}
 ```
 
 该方法对 IndexCreationTask 做安全校验并转变为 UpdateTask，UpdateTask 是个包含优先级的任务，是 PrioritizedRunnable 的子类。之后通过 `taskBatcher.submitTasks(safeTasks, config.timeout());` 继续提交任务，经过一些校验，最终调用 execute 执行任务，完成 CreateIndex。
+
+### publish
+
+UpdateTask 会执行 `publish(clusterChangedEvent, taskOutputs, publicationStartTime);` 用于通知其他 Node 变更集群状态。
+
+继续调用 `clusterStatePublisher.publish(clusterChangedEvent, fut, taskOutputs.createAckListener(threadPool, clusterChangedEvent.state()));`。clusterStatePublisher 是集群状态发布器，publish 接口方法只能由 Master 节点发起，将集群状态的更改发布到所有 Node，并应用到 Master 节点本身。
+
+- Coordinator#publish
+
+```java
+// org/elasticsearch/cluster/coordination/Coordinator.java#publish
+@Override
+public void publish(ClusterChangedEvent clusterChangedEvent, ActionListener<Void> publishListener, AckListener ackListener) {
+    try {
+        synchronized (mutex) {
+            if (mode != Mode.LEADER || getCurrentTerm() != clusterChangedEvent.state().term()) {
+                logger.debug(() -> new ParameterizedMessage("[{}] failed publication as node is no longer master for term {}",
+                    clusterChangedEvent.source(), clusterChangedEvent.state().term()));
+                publishListener.onFailure(new FailedToCommitClusterStateException("node is no longer master for term " +
+                    clusterChangedEvent.state().term() + " while handling publication"));
+                return;
+            }
+
+            if (currentPublication.isPresent()) {
+                assert false : "[" + currentPublication.get() + "] in progress, cannot start new publication";
+                logger.warn(() -> new ParameterizedMessage("[{}] failed publication as already publication in progress",
+                    clusterChangedEvent.source()));
+                publishListener.onFailure(new FailedToCommitClusterStateException("publication " + currentPublication.get() +
+                    " already in progress"));
+                return;
+            }
+
+            assert assertPreviousStateConsistency(clusterChangedEvent);
+
+            final ClusterState clusterState = clusterChangedEvent.state();
+
+            assert getLocalNode().equals(clusterState.getNodes().get(getLocalNode().getId())) :
+                getLocalNode() + " should be in published " + clusterState;
+
+            final PublicationTransportHandler.PublicationContext publicationContext =
+                publicationHandler.newPublicationContext(clusterChangedEvent);
+
+            final PublishRequest publishRequest = coordinationState.get().handleClientValue(clusterState);
+            // 实例化 CoordinatorPublication，包含 publishRequest 初始化
+            final CoordinatorPublication publication = new CoordinatorPublication(publishRequest, publicationContext,
+                new ListenableFuture<>(), ackListener, publishListener);
+            currentPublication = Optional.of(publication);
+            // DiscoveryNodes
+            final DiscoveryNodes publishNodes = publishRequest.getAcceptedState().nodes();
+            leaderChecker.setCurrentNodes(publishNodes);
+            followersChecker.setCurrentNodes(publishNodes);
+            lagDetector.setTrackedNodes(publishNodes);
+            // 开始发布
+            publication.start(followersChecker.getFaultyNodes());
+        }
+    } catch (Exception e) {
+        logger.debug(() -> new ParameterizedMessage("[{}] publishing failed", clusterChangedEvent.source()), e);
+        publishListener.onFailure(new FailedToCommitClusterStateException("publishing failed", e));
+    }
+}
+```
+
+Coordinator 是协调类，用于协调多种请求。`Coordinator#publish` 主要是对 CoordinatorPublication 实例化并初始化 publishRequest、DiscoveryNodes 等属性，调用 start 开始发布流程。
+
+- Publication#sendPublishRequest
+
+```java
+// org/elasticsearch/cluster/coordination/Publication.java#start
+public void start(Set<DiscoveryNode> faultyNodes) {
+    logger.trace("publishing {} to {}", publishRequest, publicationTargets);
+
+    for (final DiscoveryNode faultyNode : faultyNodes) {
+        onFaultyNode(faultyNode);
+    }
+    onPossibleCommitFailure();
+    // 发送发布请求
+    publicationTargets.forEach(PublicationTarget::sendPublishRequest);
+}
+
+// org/elasticsearch/cluster/coordination/Publication.java#sendPublishRequest
+void sendPublishRequest() {
+    if (isFailed()) {
+        return;
+    }
+    assert state == PublicationTargetState.NOT_STARTED : state + " -> " + PublicationTargetState.SENT_PUBLISH_REQUEST;
+    state = PublicationTargetState.SENT_PUBLISH_REQUEST;
+    // 发送发布请求，并设置响应处理器
+    Publication.this.sendPublishRequest(discoveryNode, publishRequest, new PublishResponseHandler());
+    // TODO Can this ^ fail with an exception? Target should be failed if so.
+    assert publicationCompletedIffAllTargetsInactiveOrCancelled();
+}
+```
+
+Publication 是发布类，用于处理发布业务。`Publication.this.sendPublishRequest(discoveryNode, publishRequest, new PublishResponseHandler());` 负责向其他节点发送发布请求，以达到发布集群状态的目的。
+
+- PublicationTransportHandler#sendClusterStateToNode
+
+```java
+// org/elasticsearch/cluster/coordination/PublicationTransportHandler.java#sendClusterStateToNode
+private void sendClusterStateToNode(ClusterState clusterState, BytesReference bytes, DiscoveryNode node,
+                                    ActionListener<PublishWithJoinResponse> responseActionListener, boolean sendDiffs,
+                                    Map<Version, BytesReference> serializedStates) {
+    try {
+        final BytesTransportRequest request = new BytesTransportRequest(bytes, node.getVersion());
+        final Consumer<TransportException> transportExceptionHandler = exp -> {
+            if (sendDiffs && exp.unwrapCause() instanceof IncompatibleClusterStateVersionException) {
+                logger.debug("resending full cluster state to node {} reason {}", node, exp.getDetailedMessage());
+                sendFullClusterState(clusterState, serializedStates, node, responseActionListener);
+            } else {
+                logger.debug(() -> new ParameterizedMessage("failed to send cluster state to {}", node), exp);
+                responseActionListener.onFailure(exp);
+            }
+        };
+        final TransportResponseHandler<PublishWithJoinResponse> publishWithJoinResponseHandler =
+            new TransportResponseHandler<PublishWithJoinResponse>() {
+
+                @Override
+                public PublishWithJoinResponse read(StreamInput in) throws IOException {
+                    return new PublishWithJoinResponse(in);
+                }
+
+                @Override
+                public void handleResponse(PublishWithJoinResponse response) {
+                    responseActionListener.onResponse(response);
+                }
+
+                @Override
+                public void handleException(TransportException exp) {
+                    transportExceptionHandler.accept(exp);
+                }
+
+                @Override
+                public String executor() {
+                    return ThreadPool.Names.GENERIC;
+                }
+            };
+        final String actionName;
+        final TransportResponseHandler<?> transportResponseHandler;
+        if (Coordinator.isZen1Node(node)) {
+            // internal:discovery/zen/publish/commit
+            actionName = PublishClusterStateAction.SEND_ACTION_NAME;
+            transportResponseHandler = publishWithJoinResponseHandler.wrap(empty -> new PublishWithJoinResponse(
+                new PublishResponse(clusterState.term(), clusterState.version()),
+                Optional.of(new Join(node, transportService.getLocalNode(), clusterState.term(), clusterState.term(),
+                    clusterState.version()))), in -> TransportResponse.Empty.INSTANCE);
+        } else {
+            // 发布集群状态 ： internal:cluster/coordination/publish_state
+            actionName = PUBLISH_STATE_ACTION_NAME;
+            transportResponseHandler = publishWithJoinResponseHandler;
+        }
+        // 通过 TransportService 发送请求，TransportService 是传输模块服务类，用于处理节点通信
+        transportService.sendRequest(node, actionName, request, stateRequestOptions, transportResponseHandler);
+    } catch (Exception e) {
+        logger.warn(() -> new ParameterizedMessage("error sending cluster state to {}", node), e);
+        responseActionListener.onFailure(e);
+    }
+}
+```
+
+`sendClusterStateToNode` 方法的作用是将集群状态发布到其他节点，此处的 actionName 对应的是 `internal:cluster/coordination/publish_state`。
+
+将状态发布到其他节点是通过 TransportService 实现的，TransportService 是网络模块的服务类，用于处理节点之间的通信。同时，网络模块还提高了与之对应的处理器来处理节点间通信消息，即 Netty4MessageChannelHandler。
+
+- Netty4MessageChannelHandler
+
+Netty4MessageChannelHandler 接收到来自其他节点的 message，会将其解析为 Request，并分派给相应的处理类执行业务处理。
+
+发布集群状态对应的处理类是 PublicationTransportHandler ，它在构造函数中注册了一些请求处理器。
+
+```java
+public PublicationTransportHandler(TransportService transportService, NamedWriteableRegistry namedWriteableRegistry,
+                                   Function<PublishRequest, PublishWithJoinResponse> handlePublishRequest,
+                                   BiConsumer<ApplyCommitRequest, ActionListener<Void>> handleApplyCommit) {
+    this.transportService = transportService;
+    this.namedWriteableRegistry = namedWriteableRegistry;
+    this.handlePublishRequest = handlePublishRequest;
+
+    // 注册请求处理器
+    // PUBLISH_STATE_ACTION_NAME：internal:cluster/coordination/publish_state
+    // TransportRequestHandler#messageReceived 的实现： (request, channel, task) -> channel.sendResponse(handleIncomingPublishRequest(request))
+    // handleIncomingPublishRequest，处理传入的请求
+    transportService.registerRequestHandler(PUBLISH_STATE_ACTION_NAME, ThreadPool.Names.GENERIC, false, false,
+        BytesTransportRequest::new, (request, channel, task) -> channel.sendResponse(handleIncomingPublishRequest(request)));
+
+    // ...
+}
+```
+`PUBLISH_STATE_ACTION_NAME` 常量的值是 `internal:cluster/coordination/publish_state`，表示发布集群状态；handleIncomingPublishRequest 用于处理该请求。
+
+- PublicationTransportHandler#handleIncomingPublishRequest
+
+```java
+// org/elasticsearch/cluster/coordination/PublicationTransportHandler.java#handleIncomingPublishRequest
+private PublishWithJoinResponse handleIncomingPublishRequest(BytesTransportRequest request) throws IOException {
+    final Compressor compressor = CompressorFactory.compressor(request.bytes());
+    StreamInput in = request.bytes().streamInput();
+    try {
+        if (compressor != null) {
+            in = compressor.streamInput(in);
+        }
+        in = new NamedWriteableAwareStreamInput(in, namedWriteableRegistry);
+        in.setVersion(request.version());
+        // If true we received full cluster state - otherwise diffs
+        // 如果为真，我们接收到完整的集群状态，否则是差值
+        if (in.readBoolean()) {
+            // 传入的集群状态
+            final ClusterState incomingState;
+            try {
+                incomingState = ClusterState.readFrom(in, transportService.getLocalNode());
+            } catch (Exception e){
+                logger.warn("unexpected error while deserializing an incoming cluster state", e);
+                throw e;
+            }
+            fullClusterStateReceivedCount.incrementAndGet();
+            logger.debug("received full cluster state version [{}] with size [{}]", incomingState.version(),
+                request.bytes().length());
+            final PublishWithJoinResponse response = acceptState(incomingState);
+            // 覆盖更新 lastSeenClusterState，最近集群状态
+            lastSeenClusterState.set(incomingState);
+            return response;
+        } else {
+            // 最近的状态
+            final ClusterState lastSeen = lastSeenClusterState.get();
+            if (lastSeen == null) {
+                logger.debug("received diff for but don't have any local cluster state - requesting full state");
+                incompatibleClusterStateDiffReceivedCount.incrementAndGet();
+                throw new IncompatibleClusterStateVersionException("have no local cluster state");
+            } else {
+                // 传入的状态
+                ClusterState incomingState;
+                try {
+                    Diff<ClusterState> diff = ClusterState.readDiffFrom(in, lastSeen.nodes().getLocalNode());
+                    incomingState = diff.apply(lastSeen); // might throw IncompatibleClusterStateVersionException
+                } catch (IncompatibleClusterStateVersionException e) {
+                    incompatibleClusterStateDiffReceivedCount.incrementAndGet();
+                    throw e;
+                } catch (Exception e){
+                    logger.warn("unexpected error while deserializing an incoming cluster state", e);
+                    throw e;
+                }
+                compatibleClusterStateDiffReceivedCount.incrementAndGet();
+                logger.debug("received diff cluster state version [{}] with uuid [{}], diff size [{}]",
+                    incomingState.version(), incomingState.stateUUID(), request.bytes().length());
+                final PublishWithJoinResponse response = acceptState(incomingState);
+                // CAS 更新 lastSeenClusterState，最近集群状态
+                lastSeenClusterState .compareAndSet(lastSeen, incomingState);
+                return response;
+            }
+        }
+    } finally {
+        IOUtils.close(in);
+    }
+}
+```
+
+该方法完成集群状态的更新，lastSeenClusterState 用于存储最近的集群状态，更新集群状态就是更新 lastSeenClusterState。
 
 ### 总结
 
