@@ -1,8 +1,9 @@
 # 写入 Document 流程
 
 - 目录
-    - [RestIndexAction](#RestIndexAction)
-    - [TransportIndexAction](#TransportIndexAction)
+  - [RestIndexAction](#RestIndexAction)
+  - [TransportIndexAction](#TransportIndexAction)
+  - [perform](#perform)
 
 Index 是一组同构 Document 的集合，分布于不同节点上的不同分片中。
 
@@ -506,4 +507,397 @@ protected void doRun() {
 ```
 
 如果主分片所在节点是当前节点，则调用 performLocalAction 本地执行，否则 performRemoteAction 远程调用。
- 
+
+### perform
+
+performLocalAction 和 performRemoteAction 都会调用 `TransportReplicationAction#performAction`，最终会调用 `TransportService#sendRequest`。
+
+TransportReplicationAction 构造函数：
+
+```java
+// 
+protected TransportReplicationAction(Settings settings, String actionName, TransportService transportService,
+                                     ClusterService clusterService, IndicesService indicesService,
+                                     ThreadPool threadPool, ShardStateAction shardStateAction,
+                                     ActionFilters actionFilters,
+                                     IndexNameExpressionResolver indexNameExpressionResolver, Writeable.Reader<Request> requestReader,
+                                     Writeable.Reader<ReplicaRequest> replicaRequestReader, String executor,
+                                     boolean syncGlobalCheckpointAfterOperation, boolean forceExecutionOnPrimary) {
+    super(actionName, actionFilters, transportService.getTaskManager());
+    this.threadPool = threadPool;
+    this.transportService = transportService;
+    this.clusterService = clusterService;
+    this.indicesService = indicesService;
+    this.shardStateAction = shardStateAction;
+    this.indexNameExpressionResolver = indexNameExpressionResolver;
+    this.executor = executor;
+
+    this.transportPrimaryAction = actionName + "[p]";
+    this.transportReplicaAction = actionName + "[r]";
+
+    transportService.registerRequestHandler(actionName, ThreadPool.Names.SAME, requestReader, this::handleOperationRequest);
+    
+    // indices:data/write/bulk[s][p]
+    transportService.registerRequestHandler(transportPrimaryAction, executor, forceExecutionOnPrimary, true,
+        in -> new ConcreteShardRequest<>(requestReader, in), this::handlePrimaryRequest);
+    
+    // indices:data/write/bulk[s][r]
+    // we must never reject on because of thread pool capacity on replicas
+    transportService.registerRequestHandler(transportReplicaAction, executor, true, true,
+        in -> new ConcreteReplicaRequest<>(replicaRequestReader, in), this::handleReplicaRequest);
+
+    this.transportOptions = transportOptions(settings);
+
+    this.syncGlobalCheckpointAfterOperation = syncGlobalCheckpointAfterOperation;
+}
+```
+
+初始化 TransportReplicationAction 时，会为 actionName 为 `indices:data/write/bulk[s][p]` 和 `indices:data/write/bulk[s][r]` 请求注册处理器。
+
+- 本地执行
+
+如果是本地执行，调用的方法如下：
+
+```java
+// org/elasticsearch/transport/TransportService.java#sendRequest
+public void sendRequest(long requestId, String action, TransportRequest request, TransportRequestOptions options)
+    throws TransportException {
+    // 发送本地请求
+    sendLocalRequest(requestId, action, request, options);
+}
+```
+
+本地执行会调用 sendLocalRequest。
+
+```java
+// org/elasticsearch/transport/TransportService.java#sendLocalRequest
+private void sendLocalRequest(long requestId, final String action, final TransportRequest request, TransportRequestOptions options) {
+      final DirectResponseChannel channel = new DirectResponseChannel(localNode, action, requestId, this, threadPool);
+      try {
+          onRequestSent(localNode, requestId, action, request, options);
+          onRequestReceived(requestId, action);
+          // 获取处理器
+          final RequestHandlerRegistry reg = getRequestHandler(action);
+          if (reg == null) {
+              throw new ActionNotFoundTransportException("Action [" + action + "] not found");
+          }
+          // 获取执行任务名称，如 write
+          final String executor = reg.getExecutor();
+          if (ThreadPool.Names.SAME.equals(executor)) {
+              //noinspection unchecked
+              // 处理请求
+              reg.processMessageReceived(request, channel);
+          } else {
+              threadPool.executor(executor).execute(new AbstractRunnable() {
+                  @Override
+                  protected void doRun() throws Exception {
+                      //noinspection unchecked
+                      // 处理请求
+                      reg.processMessageReceived(request, channel);
+                  }
+
+                  @Override
+                  public boolean isForceExecution() {
+                      return reg.isForceExecution();
+                  }
+
+                  @Override
+                  public void onFailure(Exception e) {
+                      try {
+                          channel.sendResponse(e);
+                      } catch (Exception inner) {
+                          inner.addSuppressed(e);
+                          logger.warn(() -> new ParameterizedMessage(
+                                  "failed to notify channel of error message for action [{}]", action), inner);
+                      }
+                  }
+
+                  @Override
+                  public String toString() {
+                      return "processing of [" + requestId + "][" + action + "]: " + request;
+                  }
+              });
+          }
+
+      } catch (Exception e) {
+          try {
+              channel.sendResponse(e);
+          } catch (Exception inner) {
+              inner.addSuppressed(e);
+              logger.warn(
+                  () -> new ParameterizedMessage(
+                      "failed to notify channel of error message for action [{}]", action), inner);
+          }
+      }
+  }
+```
+
+processMessageReceived 会进一步调用 messageReceived 方法，最终根据 request 的 actionName 匹配到的处理器处理请求，即调用 `TransportReplicationAction#handlePrimaryRequest`
+
+```java
+protected void handlePrimaryRequest(final ConcreteShardRequest<Request> request, final TransportChannel channel, final Task task) {
+    // 主分片处理任务
+    new AsyncPrimaryAction(
+        request, new ChannelActionListener<>(channel, transportPrimaryAction, request), (ReplicationTask) task).run();
+}
+```
+
+AsyncPrimaryAction 实现了 Runnable，
+
+```java
+// org/elasticsearch/action/support/replication/TransportReplicationAction.java#AsyncPrimaryAction#doRun
+@Override
+protected void doRun() throws Exception {
+    // 获取分片 Id
+    final ShardId shardId = primaryRequest.getRequest().shardId();
+    // 根据分片 Id 获取分片
+    final IndexShard indexShard = getIndexShard(shardId);
+    // 获取分片路由
+    final ShardRouting shardRouting = indexShard.routingEntry();
+    // we may end up here if the cluster state used to route the primary is so stale that the underlying
+    // index shard was replaced with a replica. For example - in a two node cluster, if the primary fails
+    // the replica will take over and a replica will be assigned to the first node.
+    // 是否是主分片
+    if (shardRouting.primary() == false) {
+        throw new ReplicationOperation.RetryOnPrimaryException(shardId, "actual shard is not a primary " + shardRouting);
+    }
+    // allocationId 是否是预期值
+    final String actualAllocationId = shardRouting.allocationId().getId();
+    if (actualAllocationId.equals(primaryRequest.getTargetAllocationID()) == false) {
+        throw new ShardNotFoundException(shardId, "expected allocation id [{}] but found [{}]",
+            primaryRequest.getTargetAllocationID(), actualAllocationId);
+    }
+    // PrimaryTerm 是否是预期值
+    final long actualTerm = indexShard.getPendingPrimaryTerm();
+    if (actualTerm != primaryRequest.getPrimaryTerm()) {
+        throw new ShardNotFoundException(shardId, "expected allocation id [{}] with term [{}] but found [{}]",
+            primaryRequest.getTargetAllocationID(), primaryRequest.getPrimaryTerm(), actualTerm);
+    }
+    // 获取主分片操作许可
+    acquirePrimaryOperationPermit(
+            indexShard,
+            primaryRequest.getRequest(),
+            ActionListener.wrap(
+                    // 执行主分片操作
+                    releasable -> runWithPrimaryShardReference(new PrimaryShardReference(indexShard, releasable)),
+                    e -> {
+                        if (e instanceof ShardNotInPrimaryModeException) {
+                            onFailure(new ReplicationOperation.RetryOnPrimaryException(shardId, "shard is not in primary mode", e));
+                        } else {
+                            onFailure(e);
+                        }
+                    }));
+}
+```
+
+该方法会调用主分片、allocationId 和 PrimaryTerm，接着获取操作许可，通过 runWithPrimaryShardReference 方法执行主分片操作。
+
+```java
+void runWithPrimaryShardReference(final PrimaryShardReference primaryShardReference) {
+    try {
+        // 获取集群状态
+        final ClusterState clusterState = clusterService.state();
+        // 获取 Index 元数据
+        final IndexMetaData indexMetaData = clusterState.metaData().getIndexSafe(primaryShardReference.routingEntry().index());
+
+        final ClusterBlockException blockException = blockExceptions(clusterState, indexMetaData.getIndex().getName());
+        if (blockException != null) {
+            logger.trace("cluster is blocked, action failed on primary", blockException);
+            throw blockException;
+        }
+        // 主分片是否迁移
+        // 如果迁移了需要请求转发到新的主分片所在的节点上
+        if (primaryShardReference.isRelocated()) {
+            primaryShardReference.close(); // release shard operation lock as soon as possible
+            // 设置任务状态为 primary_delegation
+            setPhase(replicationTask, "primary_delegation");
+            // delegate primary phase to relocation target
+            // it is safe to execute primary phase on relocation target as there are no more in-flight operations where primary
+            // phase is executed on local shard and all subsequent operations are executed on relocation target as primary phase.
+            final ShardRouting primary = primaryShardReference.routingEntry();
+            assert primary.relocating() : "indexShard is marked as relocated but routing isn't" + primary;
+            final Writeable.Reader<Response> reader = TransportReplicationAction.this::newResponseInstance;
+            DiscoveryNode relocatingNode = clusterState.nodes().get(primary.relocatingNodeId());
+            // 转发请求
+            transportService.sendRequest(relocatingNode, transportPrimaryAction,
+                new ConcreteShardRequest<>(primaryRequest.getRequest(), primary.allocationId().getRelocationId(),
+                    primaryRequest.getPrimaryTerm()),
+                transportOptions,
+                new ActionListenerResponseHandler<Response>(onCompletionListener, reader) {
+                    @Override
+                    public void handleResponse(Response response) {
+                        // 设置任务状态为 finished
+                        setPhase(replicationTask, "finished");
+                        super.handleResponse(response);
+                    }
+
+                    @Override
+                    public void handleException(TransportException exp) {
+                        // 设置任务状态为 finished
+                        setPhase(replicationTask, "finished");
+                        super.handleException(exp);
+                    }
+                });
+        } else {
+            // 设置任务状态为 primary，标识可以执行主分片操作
+            setPhase(replicationTask, "primary");
+
+            final ActionListener<Response> referenceClosingListener = ActionListener.wrap(response -> {
+                primaryShardReference.close(); // release shard operation lock before responding to caller
+                setPhase(replicationTask, "finished");
+                onCompletionListener.onResponse(response);
+            }, e -> handleException(primaryShardReference, e));
+
+            final ActionListener<Response> globalCheckpointSyncingListener = ActionListener.wrap(response -> {
+                if (syncGlobalCheckpointAfterOperation) {
+                    final IndexShard shard = primaryShardReference.indexShard;
+                    try {
+                        shard.maybeSyncGlobalCheckpoint("post-operation");
+                    } catch (final Exception e) {
+                        // only log non-closed exceptions
+                        if (ExceptionsHelper.unwrap(
+                            e, AlreadyClosedException.class, IndexShardClosedException.class) == null) {
+                            // intentionally swallow, a missed global checkpoint sync should not fail this operation
+                            logger.info(
+                                new ParameterizedMessage(
+                                    "{} failed to execute post-operation global checkpoint sync", shard.shardId()), e);
+                        }
+                    }
+                }
+                referenceClosingListener.onResponse(response);
+            }, referenceClosingListener::onFailure);
+
+            // 执行复制操作任务
+            new ReplicationOperation<>(primaryRequest.getRequest(), primaryShardReference,
+                ActionListener.wrap(result -> result.respond(globalCheckpointSyncingListener), referenceClosingListener::onFailure),
+                newReplicasProxy(), logger, actionName, primaryRequest.getPrimaryTerm()).execute();
+        }
+    } catch (Exception e) {
+        handleException(primaryShardReference, e);
+    }
+}
+```
+
+`ReplicationOperation#execute` 开始主副分片开始执行写入和复制。
+
+```java
+// org/elasticsearch/action/support/replication/ReplicationOperation.java#execute
+public void execute() throws Exception {
+    final String activeShardCountFailure = checkActiveShardCount();
+    final ShardRouting primaryRouting = primary.routingEntry();
+    final ShardId primaryId = primaryRouting.shardId();
+    if (activeShardCountFailure != null) {
+        finishAsFailed(new UnavailableShardsException(primaryId,
+            "{} Timeout: [{}], request: [{}]", activeShardCountFailure, request.timeout(), request));
+        return;
+    }
+
+    totalShards.incrementAndGet();
+    pendingActions.incrementAndGet(); // increase by 1 until we finish all primary coordination
+    // 主分片写入和响应处理，即复制操作到副本分片
+    // perform 处理主分片
+    // 响应处理，即处理副本分片复制 ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure)
+    primary.perform(request, ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure));
+}
+```
+
+`primary.perform` 在主分片上执行写入请求，`ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure)` 负责响应处理，当主分片写入成功就开始复制操作到副本分片。
+
+```java
+// org/elasticsearch/action/support/replication/TransportReplicationAction.java#perform
+@Override
+public void perform(Request request, ActionListener<PrimaryResult<ReplicaRequest, Response>> listener) {
+    if (Assertions.ENABLED) {
+        listener = ActionListener.map(listener, result -> {
+            assert result.replicaRequest() == null || result.finalFailure == null : "a replica request [" + result.replicaRequest()
+                + "] with a primary failure [" + result.finalFailure + "]";
+            return result;
+        });
+    }
+    assert indexShard.getActiveOperationsCount() != 0 : "must perform shard operation under a permit";
+    // 在主分片上执行分片操作
+    shardOperationOnPrimary(request, indexShard, listener);
+}
+```
+
+shardOperationOnPrimary 在主分片上执行分片写入操作，顺着代码执行，快进到 org/elasticsearch/action/bulk/TransportShardBulkAction#executeBulkItemRequest 方法。
+
+executeBulkItemRequest 执行批量项请求并处理请求执行异常。
+
+```java
+// org/elasticsearch/action/bulk/TransportShardBulkAction.java#executeBulkItemRequest
+static boolean executeBulkItemRequest(BulkPrimaryExecutionContext context, UpdateHelper updateHelper, LongSupplier nowInMillisSupplier,
+                                   MappingUpdatePerformer mappingUpdater, Consumer<ActionListener<Void>> waitForMappingUpdate,
+                                   ActionListener<Void> itemDoneListener) throws Exception {
+    // ...
+    if (isDelete) {
+        final DeleteRequest request = context.getRequestToExecute();
+        result = primary.applyDeleteOperationOnPrimary(version, request.type(), request.id(), request.versionType(),
+            request.ifSeqNo(), request.ifPrimaryTerm());
+    } else {
+        final IndexRequest request = context.getRequestToExecute();
+        result = primary.applyIndexOperationOnPrimary(version, request.versionType(), new SourceToParse(
+                request.index(), request.type(), request.id(), request.source(), request.getContentType(), request.routing()),
+            request.ifSeqNo(), request.ifPrimaryTerm(), request.getAutoGeneratedTimestamp(), request.isRetry());
+    }
+    // ...
+}
+```
+
+写入操作，如果是新增或者修改操作会调用 applyIndexOperationOnPrimary 方法，申请在主分片上执行 Index 操作；接着调用 applyIndexOperation 方法实例化 Engine.Index 对象，为写入文档做准备。
+
+写入文档调用链路：`Engine#index > InternalEngine#index > InternalEngine#indexIntoLucene`。
+
+```java
+// org/elasticsearch/index/engine/InternalEngine.java#indexIntoLucene
+private IndexResult indexIntoLucene(Index index, IndexingStrategy plan)
+    throws IOException {
+    assert index.seqNo() >= 0 : "ops should have an assigned seq no.; origin: " + index.origin();
+    assert plan.versionForIndexing >= 0 : "version must be set. got " + plan.versionForIndexing;
+    assert plan.indexIntoLucene || plan.addStaleOpToLucene;
+    /* Update the document's sequence number and primary term; the sequence number here is derived here from either the sequence
+     * number service if this is on the primary, or the existing document's sequence number if this is on the replica. The
+     * primary term here has already been set, see IndexShard#prepareIndex where the Engine$Index operation is created.
+     */
+    index.parsedDoc().updateSeqID(index.seqNo(), index.primaryTerm());
+    index.parsedDoc().version().setLongValue(plan.versionForIndexing);
+    try {
+        if (plan.addStaleOpToLucene) {
+            // 如果该 Document 已经是过时的了，则首先在 Document 中增加 soft-deleted 标志字段，然后再 IndexWriter.addDocument 进行写入
+            addStaleDocs(index.docs(), indexWriter);
+        } else if (plan.useLuceneUpdateDocument) {
+            // 如果该 Document 已经存在则调用 IndexWriter.updateDocument 进行更新
+            assert assertMaxSeqNoOfUpdatesIsAdvanced(index.uid(), index.seqNo(), true, true);
+            updateDocs(index.uid(), index.docs(), indexWriter);
+        } else {
+            // document does not exists, we can optimize for create, but double check if assertions are running
+            // Document 不存在，则调用 IndexWriter.addDocument 创建新 Document
+            assert assertDocDoesNotExist(index, canOptimizeAddDocument(index) == false);
+            addDocs(index.docs(), indexWriter);
+        }
+        return new IndexResult(plan.versionForIndexing, index.primaryTerm(), index.seqNo(), plan.currentNotFoundOrDeleted);
+    } catch (Exception ex) {
+        if (ex instanceof AlreadyClosedException == false &&
+            indexWriter.getTragicException() == null && treatDocumentFailureAsTragicError(index) == false) {
+            return new IndexResult(ex, Versions.MATCH_ANY, index.primaryTerm(), index.seqNo());
+        } else {
+            throw ex;
+        }
+    }
+}
+```
+
+这里根据文档状态，才去不同的行为写入 Lucene，完成主分片的写入。
+
+当主分片写入成功，`ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure)` 负责响应处理，即将操作复制到副本分片。
+
+
+
+
+
+- 远程调用
+
+如果是远程调用，会调用 `TransportService#sendRequest` 的其他重载方法，与涉及到的主分片所在节点通信，发送请求。
+
+根据 `传输模块` 学习的内容可知，`Netty4MessageChannelHandler#channelRead` 接收来自其他 Node 的消息，经过转码，进行请求处理，即调用 messageReceived 方法。
+
