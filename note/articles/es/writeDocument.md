@@ -515,7 +515,7 @@ performLocalAction 和 performRemoteAction 都会调用 `TransportReplicationAct
 TransportReplicationAction 构造函数：
 
 ```java
-// 
+// org/elasticsearch/action/support/replication/TransportReplicationAction.java#TransportReplicationAction
 protected TransportReplicationAction(Settings settings, String actionName, TransportService transportService,
                                      ClusterService clusterService, IndicesService indicesService,
                                      ThreadPool threadPool, ShardStateAction shardStateAction,
@@ -552,7 +552,8 @@ protected TransportReplicationAction(Settings settings, String actionName, Trans
 }
 ```
 
-初始化 TransportReplicationAction 时，会为 actionName 为 `indices:data/write/bulk[s][p]` 和 `indices:data/write/bulk[s][r]` 请求注册处理器。
+TransportReplicationAction 构造函数初始化了 `indices:data/write/bulk[s][p]` 和 `indices:data/write/bulk[s][r]` 的处理器，
+`TransportReplicationAction.java#handlePrimaryRequest` 处理主分片写入请求，`TransportReplicationAction.java#handleReplicaRequest` 处理副本分片复制请求。
 
 - 本地执行
 
@@ -778,7 +779,7 @@ void runWithPrimaryShardReference(final PrimaryShardReference primaryShardRefere
 }
 ```
 
-`ReplicationOperation#execute` 开始主副分片开始执行写入和复制。
+`ReplicationOperation#execute` 主副分片开始执行写入和复制。
 
 ```java
 // org/elasticsearch/action/support/replication/ReplicationOperation.java#execute
@@ -891,9 +892,134 @@ private IndexResult indexIntoLucene(Index index, IndexingStrategy plan)
 
 当主分片写入成功，`ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure)` 负责响应处理，即将操作复制到副本分片。
 
+```java
+// org/elasticsearch/action/support/replication/ReplicationOperation.java#handlePrimaryResult
+// 处理主分片操作响应结构
+private void handlePrimaryResult(final PrimaryResultT primaryResult) {
+    this.primaryResult = primaryResult;
+    primary.updateLocalCheckpointForShard(primary.routingEntry().allocationId().getId(), primary.localCheckpoint());
+    primary.updateGlobalCheckpointForShard(primary.routingEntry().allocationId().getId(), primary.globalCheckpoint());
+    final ReplicaRequest replicaRequest = primaryResult.replicaRequest();
+    // 将请求转发给副分片
+    if (replicaRequest != null) {
+        if (logger.isTraceEnabled()) {
+            logger.trace("[{}] op [{}] completed on primary for request [{}]", primary.routingEntry().shardId(), opType, request);
+        }
+        // we have to get the replication group after successfully indexing into the primary in order to honour recovery semantics.
+        // we have to make sure that every operation indexed into the primary after recovery start will also be replicated
+        // to the recovery target. If we used an old replication group, we may miss a recovery that has started since then.
+        // we also have to make sure to get the global checkpoint before the replication group, to ensure that the global checkpoint
+        // is valid for this replication group. If we would sample in the reverse, the global checkpoint might be based on a subset
+        // of the sampled replication group, and advanced further than what the given replication group would allow it to.
+        // This would entail that some shards could learn about a global checkpoint that would be higher than its local checkpoint.
+        // 获取全局检查点
+        final long globalCheckpoint = primary.computedGlobalCheckpoint();
+        // we have to capture the max_seq_no_of_updates after this request was completed on the primary to make sure the value of
+        // max_seq_no_of_updates on replica when this request is executed is at least the value on the primary when it was executed
+        // on.
+        final long maxSeqNoOfUpdatesOrDeletes = primary.maxSeqNoOfUpdatesOrDeletes();
+        assert maxSeqNoOfUpdatesOrDeletes != SequenceNumbers.UNASSIGNED_SEQ_NO : "seqno_of_updates still uninitialized";
+        // 获取分片组
+        final ReplicationGroup replicationGroup = primary.getReplicationGroup();
+        markUnavailableShardsAsStale(replicaRequest, replicationGroup);
+        // 执行副本分片写入操作
+        performOnReplicas(replicaRequest, globalCheckpoint, maxSeqNoOfUpdatesOrDeletes, replicationGroup);
+    }
+    successfulShards.incrementAndGet();  // mark primary as successful
+    // 当所有的分片都处理完这个请求后，不管是查询失败还是成功、超时，每执行一次，都会总查询的总分片数减 1，直到所有分片都返回了，再调用 finish() 方法响应客户端
+    decPendingAndFinishIfNeeded();
+}
+```
 
+接着调用 performOnReplicas 执行副本分片写入操作，
 
+```java
+// org/elasticsearch/action/support/replication/ReplicationOperation.java#performOnReplicas
+// 执行副本分片写入操作
+private void performOnReplicas(final ReplicaRequest replicaRequest, final long globalCheckpoint,
+                               final long maxSeqNoOfUpdatesOrDeletes, final ReplicationGroup replicationGroup) {
+    // for total stats, add number of unassigned shards and
+    // number of initializing shards that are not ready yet to receive operations (recovery has not opened engine yet on the target)
+    totalShards.addAndGet(replicationGroup.getSkippedShards().size());
 
+    final ShardRouting primaryRouting = primary.routingEntry();
+
+    for (final ShardRouting shard : replicationGroup.getReplicationTargets()) {
+        // 不同的 allocation 才执行，相同是当前分片，即主分片（并且过滤掉了未准备好的分片）
+        if (shard.isSameAllocation(primaryRouting) == false) {
+            // 执行副本分片写入操作
+            performOnReplica(shard, replicaRequest, globalCheckpoint, maxSeqNoOfUpdatesOrDeletes);
+        }
+    }
+}
+```
+
+这里会过滤掉未准备好的分片，performOnReplica 方法只处理可写入的副本，这个方法里面会调用 `ReplicasProxy#performOn`。
+
+```java
+@Override
+public void performOn(
+        final ShardRouting replica,
+        final ReplicaRequest request,
+        final long primaryTerm,
+        final long globalCheckpoint,
+        final long maxSeqNoOfUpdatesOrDeletes,
+        final ActionListener<ReplicationOperation.ReplicaResponse> listener) {
+    // 获取副本分片所在节点 Id
+    String nodeId = replica.currentNodeId();
+    final DiscoveryNode node = clusterService.state().nodes().get(nodeId);
+    if (node == null) {
+        listener.onFailure(new NoNodeAvailableException("unknown node [" + nodeId + "]"));
+        return;
+    }
+    final ConcreteReplicaRequest<ReplicaRequest> replicaRequest = new ConcreteReplicaRequest<>(
+        request, replica.allocationId().getId(), primaryTerm, globalCheckpoint, maxSeqNoOfUpdatesOrDeletes);
+    final ActionListenerResponseHandler<ReplicaResponse> handler = new ActionListenerResponseHandler<>(listener,
+        ReplicaResponse::new);
+    // 发送副本分片复制操作请求
+    transportService.sendRequest(node, transportReplicaAction, replicaRequest, transportOptions, handler);
+}
+```
+
+这个方法很简单，获取分别分片所在节点，通过 TransportService 与该节点通信，发起复制操作请求。
+
+Netty4MessageChannelHandler 接收到请求后，进行相关处理。
+
+TransportReplicationAction 构造函数初始化了 `indices:data/write/bulk[s][p]` 和 `indices:data/write/bulk[s][r]` 的处理器，
+`TransportReplicationAction.java#handlePrimaryRequest` 处理主分片写入请求，`TransportReplicationAction.java#handleReplicaRequest` 处理副本分片复制请求。
+
+```java
+// TransportReplicationAction.java#handlePrimaryRequest
+// indices:data/write/bulk[s][p]
+transportService.registerRequestHandler(transportPrimaryAction, executor, forceExecutionOnPrimary, true,
+    in -> new ConcreteShardRequest<>(requestReader, in), this::handlePrimaryRequest);
+
+// TransportReplicationAction.java#handleReplicaRequest
+// indices:data/write/bulk[s][r]
+// we must never reject on because of thread pool capacity on replicas
+transportService.registerRequestHandler(transportReplicaAction, executor, true, true,
+    in -> new ConcreteReplicaRequest<>(replicaRequestReader, in), this::handleReplicaRequest);
+```
+
+AsyncReplicaAction 是 TransportReplicationAction 的内部类，它负责副本写入的处理。
+
+```java
+// org/elasticsearch/action/support/replication/TransportReplicationAction.java#AsyncReplicaAction#doRun
+@Override
+protected void doRun() throws Exception {
+    setPhase(task, "replica");
+    final String actualAllocationId = this.replica.routingEntry().allocationId().getId();
+    if (actualAllocationId.equals(replicaRequest.getTargetAllocationID()) == false) {
+        throw new ShardNotFoundException(this.replica.shardId(), "expected allocation id [{}] but found [{}]",
+            replicaRequest.getTargetAllocationID(), actualAllocationId);
+    }
+    // 副本分片写入请求
+    acquireReplicaOperationPermit(replica, replicaRequest.getRequest(), this, replicaRequest.getPrimaryTerm(),
+        replicaRequest.getGlobalCheckpoint(), replicaRequest.getMaxSeqNoOfUpdatesOrDeletes());
+}
+```
+
+acquireReplicaOperationPermit 会申请副本分片写入执行操作，并回复主分片。当主分片接收到所有响应，会调用 finish 方法处理响应信息和回复客户端。对于响应异常的副本分片，主分片会通知 Master 节点移除问题分片并创建新的副本分片。
 
 - 远程调用
 
@@ -901,3 +1027,4 @@ private IndexResult indexIntoLucene(Index index, IndexingStrategy plan)
 
 根据 `传输模块` 学习的内容可知，`Netty4MessageChannelHandler#channelRead` 接收来自其他 Node 的消息，经过转码，进行请求处理，即调用 messageReceived 方法。
 
+具体处理是调用 `TransportReplicationAction.java#handlePrimaryRequest` 处理主分片写入请求，至此之后和本地执行逻辑相同。
