@@ -18,29 +18,31 @@ Netty4HttpRequestHandler 是 ElasticSearch 的网络请求处理器。当客户�
 - RestCreateIndexAction#prepareRequest
 
 ```java
+// org/elasticsearch/rest/action/admin/indices/RestCreateIndexAction.java#prepareRequest
 @Override
 public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
-final boolean includeTypeName = request.paramAsBoolean(INCLUDE_TYPE_NAME_PARAMETER,
+    final boolean includeTypeName = request.paramAsBoolean(INCLUDE_TYPE_NAME_PARAMETER,
         DEFAULT_INCLUDE_TYPE_NAME_POLICY);
-
-        if (request.hasParam(INCLUDE_TYPE_NAME_PARAMETER)) {
+    // 请求解析
+    if (request.hasParam(INCLUDE_TYPE_NAME_PARAMETER)) {
         deprecationLogger.deprecatedAndMaybeLog("create_index_with_types", TYPES_DEPRECATION_MESSAGE);
-        }
+    }
 
-        CreateIndexRequest createIndexRequest = new CreateIndexRequest(request.param("index"));
+    CreateIndexRequest createIndexRequest = new CreateIndexRequest(request.param("index"));
 
-        if (request.hasContent()) {
+    if (request.hasContent()) {
         Map<String, Object> sourceAsMap = XContentHelper.convertToMap(request.requiredContent(), false,
-        request.getXContentType()).v2();
+            request.getXContentType()).v2();
         sourceAsMap = prepareMappings(sourceAsMap, includeTypeName);
         createIndexRequest.source(sourceAsMap, LoggingDeprecationHandler.INSTANCE);
-        }
+    }
 
-        createIndexRequest.timeout(request.paramAsTime("timeout", createIndexRequest.timeout()));
-        createIndexRequest.masterNodeTimeout(request.paramAsTime("master_timeout", createIndexRequest.masterNodeTimeout()));
-        createIndexRequest.waitForActiveShards(ActiveShardCount.parseString(request.param("wait_for_active_shards")));
-        return channel -> client.admin().indices().create(createIndexRequest, new RestToXContentListener<>(channel));
-        }
+    createIndexRequest.timeout(request.paramAsTime("timeout", createIndexRequest.timeout()));
+    createIndexRequest.masterNodeTimeout(request.paramAsTime("master_timeout", createIndexRequest.masterNodeTimeout()));
+    createIndexRequest.waitForActiveShards(ActiveShardCount.parseString(request.param("wait_for_active_shards")));
+    // create Index
+    return channel -> client.admin().indices().create(createIndexRequest, new RestToXContentListener<>(channel));
+}
 ```
 
 `RestCreateIndexAction#prepareRequest` 做处理 action 前准备工作，request 中封装了客户端的 REST 请求，通过解析 request 得到 createIndexRequest，
@@ -50,10 +52,12 @@ final boolean includeTypeName = request.paramAsBoolean(INCLUDE_TYPE_NAME_PARAMET
 
 ```java
 // org/elasticsearch/client/node/NodeClient.java#doExecute
+@Override
 public <Request extends ActionRequest, Response extends ActionResponse>
 void doExecute(ActionType<Response> action, Request request, ActionListener<Response> listener) {
-        executeLocally(action, request, listener);
-        }
+    // Discard the task because the Client interface doesn't use it.  ？？？
+    executeLocally(action, request, listener);
+}
 ```
 
 程序会执行到 `NodeClient#doExecute`，它又调了 executeLocally，从方法名上看，该方法以为本地执行。
@@ -63,11 +67,11 @@ void doExecute(ActionType<Response> action, Request request, ActionListener<Resp
 ```java
 // org/elasticsearch/client/node/NodeClient.java#executeLocally
 public <    Request extends ActionRequest,
-        Response extends ActionResponse
+            Response extends ActionResponse
         > Task executeLocally(ActionType<Response> action, Request request, ActionListener<Response> listener) {
-        // 获取对应的 ACTION，执行请求
-        return transportAction(action).execute(request, listener);
-        }
+    // 获取对应的 ACTION，执行请求
+    return transportAction(action).execute(request, listener);
+}
 ```
 
 这里需要关注 `transportAction(action).execute(request, listener);`，它分为两个步骤：第一步，transportAction(action) 获取对应的 action handler；第二步，使用获取到 handler 处理请求。
@@ -77,17 +81,17 @@ public <    Request extends ActionRequest,
 ```java
 // org/elasticsearch/client/node/NodeClient.java#transportAction
 private <    Request extends ActionRequest,
-        Response extends ActionResponse
+            Response extends ActionResponse
         > TransportAction<Request, Response> transportAction(ActionType<Response> action) {
-        if (actions == null) {
+    if (actions == null) {
         throw new IllegalStateException("NodeClient has not been initialized");
-        }
-        TransportAction<Request, Response> transportAction = actions.get(action);
-        if (transportAction == null) {
+    }
+    TransportAction<Request, Response> transportAction = actions.get(action);
+    if (transportAction == null) {
         throw new IllegalStateException("failed to find action [" + action + "] to execute");
-        }
-        return transportAction;
-        }
+    }
+    return transportAction;
+}
 ```
 
 这里行为很简单，actions 是一个 map，以 actions 为键获取值，此处是获取 TransportAction，即 handler。
