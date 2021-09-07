@@ -11,7 +11,7 @@ GET <index>/_doc/<_id>
 基本流程：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Get基本流程.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Get基本流程.png" width="600px">
 </div>
 
 1. 客户端向 `Node 1` 发送 Get 请求。
@@ -19,3 +19,11 @@ GET <index>/_doc/<_id>
 3. `Node 2` 将文档返回给 `Node 1`，`Node 1` 将文档返回给客户端。
 
 这里，`Node 1` 作为协调节点，会将来自客户端的请求负载均衡地请求集群中地各个副本分片。
+
+详细流程：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/Get详细流程.png" width="600px">
+</div>
+
+Get 请求涉及两个节点：协调节点和数据节点。
