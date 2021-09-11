@@ -9,6 +9,9 @@
 
 ## 框架
 - [Spring Boot](https://github.com/lazecoding/Note/blob/main/note/articles/springboot/README.md)
+<!--
+- [netty](https://github.com/lazecoding/Note/blob/main/note/articles/netty/README.md)
+-->
 
 ## 面向对象
 - [设计模式](https://github.com/lazecoding/Note/blob/main/note/articles/pattern/README.md)
