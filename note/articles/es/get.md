@@ -229,3 +229,245 @@ public void sendRequest(long requestId, String action, TransportRequest request,
 远程调用会将请求发送到数据节点，数据节点进行请求处理。
 
 > 以上是协调节点的任务，下面是数据节点的任务
+
+### 数据节点
+
+无论是本地执行还是远程调用，最终都通过 `handler.messageReceived` 处理请求，也就是开始进行数据节点的任务。
+
+TransportSingleShardAction 用来处理分片上的请求。对于 get 请求，`handler.messageReceived` 对应的是 `ShardTransportHandler#messageReceived`，ShardTransportHandler 是 TransportSingleShardAction 的内部类。
+
+```java
+// org/elasticsearch/action/support/single/shard/TransportSingleShardAction.java#ShardTransportHandler#messageReceived
+private class ShardTransportHandler implements TransportRequestHandler<Request> {
+
+    @Override
+    public void messageReceived(final Request request, final TransportChannel channel, Task task) throws Exception {
+        if (logger.isTraceEnabled()) {
+            logger.trace("executing [{}] on shard [{}]", request, request.internalShardId);
+        }
+        asyncShardOperation(request, request.internalShardId, new ChannelActionListener<>(channel, transportShardAction, request));
+    }
+}
+```
+
+asyncShardOperation 会调用 `TransportGetAction#shardOperation`，顾名思义这个方法负责分片操作
+
+- TransportGetAction#shardOperation
+
+```java
+// org/elasticsearch/action/get/TransportGetAction.java#shardOperation
+@Override
+protected GetResponse shardOperation(GetRequest request, ShardId shardId) {
+    IndexService indexService = indicesService.indexServiceSafe(shardId.getIndex());
+    IndexShard indexShard = indexService.getShard(shardId.id());
+
+    // 检查是否需要 refresh（realtime 为 false,request.refresh() 为 true 才会刷新，realtime 意味是否需要实时数据）
+    if (request.refresh() && !request.realtime()) {
+        indexShard.refresh("refresh_flag_get");
+    }
+    
+    // 执行 get 操作，获取返回值并封装成 GetResult
+    GetResult result = indexShard.getService().get(request.type(), request.id(), request.storedFields(),
+            request.realtime(), request.version(), request.versionType(), request.fetchSourceContext());
+    return new GetResponse(result);
+}
+```
+
+这里会校验是否需要 refresh，然后再调用 `ShardGetService#get` 方法，在 `ShardGetService#get` 中会调用  `GetResult getResult = ShardGetService#innerGet` 读取并过滤结果，最终封装成 GetResult 返回。
+
+- ShardGetService#innerGet
+
+```java
+// org/elasticsearch/action/get/TransportGetAction.java#innerGet
+private GetResult innerGet(String type, String id, String[] gFields, boolean realtime, long version, VersionType versionType,
+                           long ifSeqNo, long ifPrimaryTerm, FetchSourceContext fetchSourceContext, boolean readFromTranslog) {
+    fetchSourceContext = normalizeFetchSourceContent(fetchSourceContext, gFields);
+    // 处理 _all 选项
+    if (type == null || type.equals("_all")) {
+        DocumentMapper mapper = mapperService.documentMapper();
+        type = mapper == null ? null : mapper.type();
+    }
+
+    Engine.GetResult get = null;
+    if (type != null) {
+        Term uidTerm = new Term(IdFieldMapper.NAME, Uid.encodeId(id));
+        // 调用 Engine 执行 get 操作读取并返回数据
+        get = indexShard.get(new Engine.Get(realtime, readFromTranslog, type, id, uidTerm)
+                .version(version).versionType(versionType).setIfSeqNo(ifSeqNo).setIfPrimaryTerm(ifPrimaryTerm));
+        if (get.exists() == false) {
+            get.close();
+        }
+    }
+
+    if (get == null || get.exists() == false) {
+        return new GetResult(shardId.getIndexName(), type, id, UNASSIGNED_SEQ_NO, UNASSIGNED_PRIMARY_TERM, -1, false, null, null, null);
+    }
+
+    try {
+        // break between having loaded it from translog (so we only have _source), and having a document to load
+        // 过滤返回结果，返回用户需要的字段或属性
+        return innerGetLoadFromStoredFields(type, id, gFields, fetchSourceContext, get, mapperService);
+    } finally {
+        get.close();
+    }
+}
+```
+
+这里首先处理 _all 选项，然后调用 Engine 执行 get 操作读取并返回数据，最终根据用户的需要过滤返回结果并封装成 GetResult 返回。
+
+- InternalEngine#get
+
+```java
+// org/elasticsearch/index/engine/InternalEngine#.java#get
+@Override
+public GetResult get(Get get, BiFunction<String, SearcherScope, Engine.Searcher> searcherFactory) throws EngineException {
+    assert Objects.equals(get.uid().field(), IdFieldMapper.NAME) : get.uid().field();
+    // 加锁
+    try (ReleasableLock ignored = readLock.acquire()) {
+        ensureOpen();
+        SearcherScope scope;
+        // 是否需要实时数据
+        if (get.realtime()) {
+            VersionValue versionValue = null;
+            try (Releasable ignore = versionMap.acquireLock(get.uid().bytes())) {
+                // we need to lock here to access the version map to do this truly in RT
+                versionValue = getVersionFromMap(get.uid().bytes());
+            }
+            if (versionValue != null) {
+                if (versionValue.isDelete()) {
+                    return GetResult.NOT_EXISTS;
+                }
+                if (get.versionType().isVersionConflictForReads(versionValue.version, get.version())) {
+                    throw new VersionConflictEngineException(shardId, get.id(),
+                        get.versionType().explainConflictForReads(versionValue.version, get.version()));
+                }
+                if (get.getIfSeqNo() != SequenceNumbers.UNASSIGNED_SEQ_NO && (
+                    get.getIfSeqNo() != versionValue.seqNo || get.getIfPrimaryTerm() != versionValue.term
+                    )) {
+                    throw new VersionConflictEngineException(shardId, get.id(),
+                        get.getIfSeqNo(), get.getIfPrimaryTerm(), versionValue.seqNo, versionValue.term);
+                }
+                // 是否读取 translog
+                // 如果读取 translog，就不需要 refresh 了，提前 return 了。
+                // 但从注释看 this is only used for updates，这只作用于 update 操作，在 5.x 版本已经移除，get 操作都是通过 refresh 来达到实时数据
+                if (get.isReadFromTranslog()) {
+                    // this is only used for updates - API _GET calls will always read form a reader for consistency
+                    // the update call doesn't need the consistency since it's source only + _parent but parent can go away in 7.0
+                    if (versionValue.getLocation() != null) {
+                        try {
+                            Translog.Operation operation = translog.readOperation(versionValue.getLocation());
+                            if (operation != null) {
+                                // in the case of a already pruned translog generation we might get null here - yet very unlikely
+                                final Translog.Index index = (Translog.Index) operation;
+                                TranslogLeafReader reader = new TranslogLeafReader(index);
+                                return new GetResult(new Engine.Searcher("realtime_get", reader,
+                                    IndexSearcher.getDefaultSimilarity(), null, IndexSearcher.getDefaultQueryCachingPolicy(), reader),
+                                    new VersionsAndSeqNoResolver.DocIdAndVersion(0, index.version(), index.seqNo(), index.primaryTerm(),
+                                        reader, 0));
+                            }
+                        } catch (IOException e) {
+                            maybeFailEngine("realtime_get", e); // lets check if the translog has failed with a tragic event
+                            throw new EngineException(shardId, "failed to read operation from translog", e);
+                        }
+                    } else {
+                        trackTranslogLocation.set(true);
+                    }
+                }
+                assert versionValue.seqNo >= 0 : versionValue;
+                // refresh
+                refreshIfNeeded("realtime_get", versionValue.seqNo);
+            }
+            scope = SearcherScope.INTERNAL;
+        } else {
+            // we expose what has been externally expose in a point in time snapshot via an explicit refresh
+            scope = SearcherScope.EXTERNAL;
+        }
+
+        // no version, get the version from the index, we know that we refresh on flush
+        // 获取 Searcher 用于读取数据
+        return getFromSearcher(get, searcherFactory, scope);
+    }
+}
+```
+
+`InternalEngine#get` 会加锁执行，通过 realtime 判断是否需要实时数据决定是否需要刷盘，最后获取  Searcher 用于读取数据。
+
+这个方法返回的 GetResult 是 Engine 的内部类，它包含 exists、version、docIdAndVersion、searcher 几个属性，提供了文档信息和 Searcher，以便后续 `ShardGetService#innerGetLoadFromStoredFields` 读取文档。
+
+```java
+private final boolean exists;
+private final long version;
+private final DocIdAndVersion docIdAndVersion;
+private final Engine.Searcher searcher;
+```
+
+- ShardGetService#innerGetLoadFromStoredFields
+
+```java
+private GetResult innerGetLoadFromStoredFields(String type, String id, String[] gFields, FetchSourceContext fetchSourceContext,
+                                                    Engine.GetResult get, MapperService mapperService) {
+    Map<String, DocumentField> documentFields = null;
+    Map<String, DocumentField> metaDataFields = null;
+    BytesReference source = null;
+    DocIdAndVersion docIdAndVersion = get.docIdAndVersion();
+    FieldsVisitor fieldVisitor = buildFieldsVisitors(gFields, fetchSourceContext);
+    if (fieldVisitor != null) {
+        try {
+            // 调用 lucene 读取文档，构建 fieldVisitor
+            docIdAndVersion.reader.document(docIdAndVersion.docId, fieldVisitor);
+        } catch (IOException e) {
+            throw new ElasticsearchException("Failed to get type [" + type + "] and id [" + id + "]", e);
+        }
+        source = fieldVisitor.source();
+
+        if (!fieldVisitor.fields().isEmpty()) {
+            fieldVisitor.postProcess(mapperService);
+            documentFields = new HashMap<>();
+            metaDataFields = new HashMap<>();
+            for (Map.Entry<String, List<Object>> entry : fieldVisitor.fields().entrySet()) {
+                if (MapperService.isMetadataField(entry.getKey())) {
+                    metaDataFields.put(entry.getKey(), new DocumentField(entry.getKey(), entry.getValue()));
+                } else {
+                    documentFields.put(entry.getKey(), new DocumentField(entry.getKey(), entry.getValue()));
+                }
+            }
+        }
+    }
+
+    DocumentMapper docMapper = mapperService.documentMapper();
+
+    if (gFields != null && gFields.length > 0) {
+        for (String field : gFields) {
+            Mapper fieldMapper = docMapper.mappers().getMapper(field);
+            if (fieldMapper == null) {
+                if (docMapper.objectMappers().get(field) != null) {
+                    // Only fail if we know it is a object field, missing paths / fields shouldn't fail.
+                    throw new IllegalArgumentException("field [" + field + "] isn't a leaf field");
+                }
+            }
+        }
+    }
+    // 过滤内容
+    if (!fetchSourceContext.fetchSource()) {
+        source = null;
+    } else if (fetchSourceContext.includes().length > 0 || fetchSourceContext.excludes().length > 0) {
+        Map<String, Object> sourceAsMap;
+        XContentType sourceContentType = null;
+        // TODO: The source might parsed and available in the sourceLookup but that one uses unordered maps so different. Do we care?
+        Tuple<XContentType, Map<String, Object>> typeMapTuple = XContentHelper.convertToMap(source, true);
+        sourceContentType = typeMapTuple.v1();
+        sourceAsMap = typeMapTuple.v2();
+        sourceAsMap = XContentMapValues.filter(sourceAsMap, fetchSourceContext.includes(), fetchSourceContext.excludes());
+        try {
+            source = BytesReference.bytes(XContentFactory.contentBuilder(sourceContentType).map(sourceAsMap));
+        } catch (IOException e) {
+            throw new ElasticsearchException("Failed to get type [" + type + "] and id [" + id + "] with includes/excludes set", e);
+        }
+    }
+    // 构建 GetResult
+    return new GetResult(shardId.getIndexName(), type, id, get.docIdAndVersion().seqNo, get.docIdAndVersion().primaryTerm,
+        get.version(), get.exists(), source, documentFields, metaDataFields);
+}
+```
+
+这里会读取文档并根据用户需要过滤结果，最终构建 GetResult 返回。其中 `docIdAndVersion.reader.document` 用于读取文档并将内容初始化在 fieldVisitor 集合中，读取文档是通过调用 lucene 实现的。
