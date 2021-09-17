@@ -1,6 +1,13 @@
 # Get 流程
 
+- 目录
+    - [RestGetAction](#RestGetAction)
+    - [TransportGetAction](#TransportGetAction)
+    - [数据节点](#数据节点)
+
 Elasticsearch 文档的读取分为 Get 和 Search，本章讲解 Get 请求执行流程。
+
+> Get 请求根据 Document Id 获取文档。
 
 请求格式：
 
@@ -471,3 +478,5 @@ private GetResult innerGetLoadFromStoredFields(String type, String id, String[] 
 ```
 
 这里会读取文档并根据用户需要过滤结果，最终构建 GetResult 返回。其中 `docIdAndVersion.reader.document` 用于读取文档并将内容初始化在 fieldVisitor 集合中，读取文档是通过调用 lucene 实现的。
+
+> 以上就是数据节点获取文档的过程。
