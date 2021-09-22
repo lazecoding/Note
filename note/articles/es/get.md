@@ -151,7 +151,7 @@ private AsyncSingleAction(Request request, ActionListener<Response> listener) {
     if (logger.isTraceEnabled()) {
         logger.trace("executing [{}] based on cluster state version [{}]", request, clusterState.version());
     }
-    // 接群 node  列表
+    // 集群 node 列表
     nodes = clusterState.nodes();
     ClusterBlockException blockException = checkGlobalBlock(clusterState);
     if (blockException != null) {
@@ -356,7 +356,7 @@ public GetResult get(Get get, BiFunction<String, SearcherScope, Engine.Searcher>
                 }
                 // 是否读取 translog
                 // 如果读取 translog，就不需要 refresh 了，提前 return 了。
-                // 但从注释看 this is only used for updates，这只作用于 update 操作，在 5.x 版本已经移除，get 操作都是通过 refresh 来达到实时数据
+                // 但从注释看 this is only used for updates，这只作用于 update 操作，在 5.x 版本已经移除，get 操作都是通过 refresh 来得到实时数据
                 if (get.isReadFromTranslog()) {
                     // this is only used for updates - API _GET calls will always read form a reader for consistency
                     // the update call doesn't need the consistency since it's source only + _parent but parent can go away in 7.0
