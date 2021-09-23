@@ -15,3 +15,4 @@
 - [写入 Index 流程](https://github.com/lazecoding/Note/blob/main/note/articles/es/writeIndex.md)
 - [写入 Document 流程](https://github.com/lazecoding/Note/blob/main/note/articles/es/writeDocument.md)
 - [Get 流程](https://github.com/lazecoding/Note/blob/main/note/articles/es/get.md)
+- [Search 流程](https://github.com/lazecoding/Note/blob/main/note/articles/es/search.md)
