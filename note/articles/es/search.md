@@ -50,7 +50,7 @@ query 阶段包含 3 个步骤:
 
 #### fetch
 
-query 阶段标识哪些文档满足搜索请求，我们需要取回这些文档,这是 fetch 阶段的任务。
+query 阶段标识哪些文档满足搜索请求，我们需要取回这些文档，这是 fetch 阶段的任务。
 
 fetch 阶段包含 3 个步骤:
 
@@ -90,8 +90,6 @@ GET /_search?search_type=dfs_query_then_fetch
 ### 执行流程
 
 以 `query_then_fetch` 为例，search 流程需要经历 query 阶段和 fetch 阶段，整个流程由协调节点和数据阶段交互完成。
-
-https://blog.csdn.net/wudingmei1023/article/details/103978498
 
 经过分析了几种 Rest 请求流程，我们已经可以知道：RestXXXAction 用于预处理 Rest 请求，具体的请求处理由 TransportXXXAction 来完成。通常，协调节点在 TransportXXXAction 中要对请求进行协调转发和设置对应 action 的处理器，数据节点使用设置的处理器完成数据处理。
 
@@ -570,3 +568,227 @@ final void onPhaseDone() {  // as a tribute to @kimchy aka. finishHim()
 > 至此，query 阶段完毕。
 
 #### fetch 阶段
+
+fetch 阶段标识哪些文档满足搜索请求，并取回这些文档。
+
+```java
+final void onPhaseDone() {  // as a tribute to @kimchy aka. finishHim()
+    executeNextPhase(this, getNextPhase(results, this));
+}
+```
+
+query 阶段完成进入 onPhaseDone，开始执行 executeNextPhase。
+
+- AbstractSearchAsyncAction#executeNextPhase
+
+`executeNextPhase(SearchPhase currentPhase, SearchPhase nextPhase)` 的两个参数，在 fetch 阶段分别是 SearchQueryThenFetchAsyncAction 和 FetchSearchPhase，意味着下面的主业务由 FetchSearchPhase 进行。
+
+该方法进行一些准备工作后，调用 `AbstractSearchAsyncAction#executePhase` 方法，入参 FetchSearchPhase，进而调用 `FetchSearchPhase#run`。
+
+org/elasticsearch/action/search/AbstractSearchAsyncAction.java:318
+
+- FetchSearchPhase#innerRun
+
+`FetchSearchPhase#run` 方法很简单,里面接着调用 `FetchSearchPhase#innerRun`
+
+```java
+// org/elasticsearch/action/search/FetchSearchPhase.java#run
+@Override
+public void run() {
+    context.execute(new AbstractRunnable() {
+        @Override
+        protected void doRun() throws Exception {
+            // we do the heavy lifting in this inner run method where we reduce aggs etc. that's why we fork this phase
+            // off immediately instead of forking when we send back the response to the user since there we only need
+            // to merge together the fetched results which is a linear operation.
+            innerRun();
+        }
+
+        @Override
+        public void onFailure(Exception e) {
+            context.onPhaseFailure(FetchSearchPhase.this, "", e);
+        }
+    });
+}
+```
+
+innerRun 进入 fetch 主业务流程。
+
+```java
+private void innerRun() throws IOException {
+    final int numShards = context.getNumShards();
+    final boolean isScrollSearch = context.getRequest().scroll() != null;
+    List<SearchPhaseResult> phaseResults = queryResults.asList();
+    String scrollId = isScrollSearch ? TransportSearchHelper.buildScrollId(queryResults) : null;
+    // reduce 做全局排序，调用 SearchPhaseController#sortDocs
+    final SearchPhaseController.ReducedQueryPhase reducedQueryPhase = resultConsumer.reduce();
+    final boolean queryAndFetchOptimization = queryResults.length() == 1;
+    // finish 时候执行的任务 ： moveToNextPhase
+    final Runnable finishPhase = ()
+        -> moveToNextPhase(searchPhaseController, scrollId, reducedQueryPhase, queryAndFetchOptimization ?
+        queryResults : fetchResults);
+    if (queryAndFetchOptimization) {
+        assert phaseResults.isEmpty() || phaseResults.get(0).fetchResult() != null : "phaseResults empty [" + phaseResults.isEmpty()
+            + "], single result: " +  phaseResults.get(0).fetchResult();
+        // query AND fetch optimization
+        finishPhase.run();
+    } else {
+        ScoreDoc[] scoreDocs = reducedQueryPhase.sortedTopDocs.scoreDocs;
+        // 获取排序后的 Doc Id
+        final IntArrayList[] docIdsToLoad = searchPhaseController.fillDocIdsToLoad(numShards, scoreDocs);
+        if (scoreDocs.length == 0) { // no docs to fetch -- sidestep everything and return
+            phaseResults.stream()
+                .map(SearchPhaseResult::queryResult)
+                .forEach(this::releaseIrrelevantSearchContext); // we have to release contexts here to free up resources
+            finishPhase.run();
+        } else {
+            final ScoreDoc[] lastEmittedDocPerShard = isScrollSearch ?
+                searchPhaseController.getLastEmittedDocPerShard(reducedQueryPhase, numShards)
+                : null;
+            // 实例化 CountedCollector
+            final CountedCollector<FetchSearchResult> counter = new CountedCollector<>(r -> fetchResults.set(r.getShardIndex(), r),
+                docIdsToLoad.length, // we count down every shard in the result no matter if we got any results or not
+                finishPhase, context);
+            // 逐个遍历文档 fetch
+            for (int i = 0; i < docIdsToLoad.length; i++) {
+                IntArrayList entry = docIdsToLoad[i];
+                SearchPhaseResult queryResult = queryResults.get(i);
+                if (entry == null) { // no results for this shard ID
+                    if (queryResult != null) {
+                        // if we got some hits from this shard we have to release the context there
+                        // we do this as we go since it will free up resources and passing on the request on the
+                        // transport layer is cheap.
+                        releaseIrrelevantSearchContext(queryResult.queryResult());
+                    }
+                    // in any case we count down this result since we don't talk to this shard anymore
+                    counter.countDown();
+                } else {
+                    SearchShardTarget searchShardTarget = queryResult.getSearchShardTarget();
+                    Transport.Connection connection = context.getConnection(searchShardTarget.getClusterAlias(),
+                        searchShardTarget.getNodeId());
+                    ShardFetchSearchRequest fetchSearchRequest = createFetchRequest(queryResult.queryResult().getRequestId(), i, entry,
+                        lastEmittedDocPerShard, searchShardTarget.getOriginalIndices());
+                    // 执行 fetch
+                    executeFetch(i, searchShardTarget, counter, fetchSearchRequest, queryResult.queryResult(),
+                        connection);
+                }
+            }
+        }
+    }
+}
+```
+
+这里会通过 SearchPhaseController.ReducedQueryPhase 对文档进行全局排序，之后获取到的 docIdsToLoad 就是排序后的 Doc Id 列表，
+然后会遍历 docIdsToLoad 逐个调用 `FetchSearchPhase#executeFetch`。
+
+- FetchSearchPhase#executeFetch
+
+```java
+// org/elasticsearch/action/search/FetchSearchPhase.java#executeFetch
+private void executeFetch(final int shardIndex, final SearchShardTarget shardTarget,
+                          final CountedCollector<FetchSearchResult> counter,
+                          final ShardFetchSearchRequest fetchSearchRequest, final QuerySearchResult querySearchResult,
+                          final Transport.Connection connection) {
+    // 发起 fetch 请求， FETCH_ID_ACTION_NAME ，对应的处理器是 SearchService#executeFetchPhase
+    context.getSearchTransport().sendExecuteFetch(connection, fetchSearchRequest, context.getTask(),
+        new SearchActionListener<FetchSearchResult>(shardTarget, shardIndex) {
+            @Override
+            public void innerOnResponse(FetchSearchResult result) {
+                try {
+                    counter.onResult(result);
+                } catch (Exception e) {
+                    context.onPhaseFailure(FetchSearchPhase.this, "", e);
+                }
+            }
+
+            @Override
+            public void onFailure(Exception e) {
+                try {
+                    logger.debug(() -> new ParameterizedMessage("[{}] Failed to execute fetch phase", fetchSearchRequest.id()), e);
+                    counter.onFailure(shardIndex, shardTarget, e);
+                } finally {
+                    // the search context might not be cleared on the node where the fetch was executed for example
+                    // because the action was rejected by the thread pool. in this case we need to send a dedicated
+                    // request to clear the search context.
+                    releaseIrrelevantSearchContext(querySearchResult);
+                }
+            }
+        });
+}
+```
+
+sendExecuteFetch 负责发送 fetch 请求。这里转发的 action 是 FETCH_ID_ACTION_NAME ，对应的处理器是 `SearchService#executeFetchPhase`。
+
+- SearchService#executeFetchPhas
+
+```java
+// org/elasticsearch/search/SearchService.java#executeFetchPhase
+public void executeFetchPhase(ShardFetchRequest request, SearchTask task, ActionListener<FetchSearchResult> listener) {
+    runAsync(request.id(), () -> {
+        final SearchContext context = findContext(request.id(), request);
+        context.incRef();
+        try {
+            context.setTask(task);
+            contextProcessing(context);
+            if (request.lastEmittedDoc() != null) {
+                context.scrollContext().lastEmittedDoc = request.lastEmittedDoc();
+            }
+            context.docIdsToLoad(request.docIds(), 0, request.docIdsSize());
+            try (SearchOperationListenerExecutor executor = new SearchOperationListenerExecutor(context, true, System.nanoTime())) {
+                // 执行 fetch
+                fetchPhase.execute(context);
+                if (fetchPhaseShouldFreeContext(context)) {
+                    freeContext(request.id());
+                } else {
+                    contextProcessedSuccessfully(context);
+                }
+                executor.success();
+            }
+            return context.fetchResult();
+        } catch (Exception e) {
+            logger.trace("Fetch phase failed", e);
+            processFailure(context, e);
+            throw e;
+        } finally {
+            cleanContext(context);
+        }
+    }, listener);
+}
+```
+
+这里进入了数据节点，`fetchPhase.execute(context);` 执行 fetch，最终返回 `context.fetchResult();` 。
+
+`fetchPhase.execute(context);` 进一步调用 `FetchPhase#createSearchHit`。
+
+```java
+// org/elasticsearch/search/fetch/FetchPhase.java#createSearchHit
+private SearchHit createSearchHit(SearchContext context,
+                                  FieldsVisitor fieldsVisitor,
+                                  int docId,
+                                  int subDocId,
+                                  Map<String, Set<String>> storedToRequestedFields,
+                                  LeafReaderContext subReaderContext) {
+    DocumentMapper documentMapper = context.mapperService().documentMapper();
+    Text typeText = documentMapper.typeText();
+    if (fieldsVisitor == null) {
+        return new SearchHit(docId, null, typeText, null);
+    }
+    // 读取 Doc,构建 fieldsVisitor 等字段
+    Map<String, DocumentField> searchFields = getSearchFields(context, fieldsVisitor, subDocId,
+        storedToRequestedFields, subReaderContext);
+    // 实例化 SearchHit
+    SearchHit searchHit = new SearchHit(docId, fieldsVisitor.uid().id(), typeText, searchFields);
+    // Set _source if requested.
+    SourceLookup sourceLookup = context.lookup().source();
+    sourceLookup.setSegmentAndDocument(subReaderContext, subDocId);
+    if (fieldsVisitor.source() != null) {
+        sourceLookup.setSource(fieldsVisitor.source());
+    }
+    return searchHit;
+}
+```
+
+这里会读取 Doc 构建 fieldsVisitor 等字段，实例化 SearchHit，最终由上层调用方将 SearchHit 整合，返回给协调节点。
+
+最终由协调节点将数据返回给客户端。
+
