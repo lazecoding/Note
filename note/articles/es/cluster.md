@@ -5,7 +5,8 @@
     - [ClusterService](#ClusterService)
         - [MasterService](#MasterService)
         - [ClusterApplierService](#ClusterApplierService)
-    
+        - [线程池](#线程池)
+          
 Cluster 模块封装了在集群层面要执行的任务 ，主要功能如下：
 
 - 管理集群状态，将新生成的集群状态发布到集群所有节点。
@@ -218,4 +219,22 @@ ClusterApplierService 类图：
 
 - UpdateTask：UpdateTask 内部类继承自 SourcePrioritizedRunnable，用于处理集群状态更新任务，与 `MasterService.Batcher` 类似。
 
-### 
+#### 线程池
+
+MasterService 和 ClusterApplierService 中使用的线程池都是 PrioritizedEsThreadPoolExecutor，corePoolSize、maximumPoolSize 都是 1, keepAliveTime 为 0，
+继续跟踪到 PrioritizedEsThreadPoolExecutor 的构造函数，可以看到线程池使用带优先级的阻塞队列 PriorityBlockingQueue。
+
+```java
+// org/elasticsearch/common/util/concurrent/EsExecutors.java#newSinglePrioritizing
+public static PrioritizedEsThreadPoolExecutor newSinglePrioritizing(String name, ThreadFactory threadFactory,
+                                                                    ThreadContext contextHolder, ScheduledExecutorService timer) {
+    return new PrioritizedEsThreadPoolExecutor(name, 1, 1, 0L, TimeUnit.MILLISECONDS, threadFactory, contextHolder, timer);
+}
+
+// org/elasticsearch/common/util/concurrent/PrioritizedEsThreadPoolExecutor.java#PrioritizedEsThreadPoolExecutor
+public PrioritizedEsThreadPoolExecutor(String name, int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit,
+                                ThreadFactory threadFactory, ThreadContext contextHolder, ScheduledExecutorService timer) {
+    super(name, corePoolSize, maximumPoolSize, keepAliveTime, unit, new PriorityBlockingQueue<>(), threadFactory, contextHolder);
+    this.timer = timer;
+}
+```
