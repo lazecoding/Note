@@ -5,10 +5,9 @@
     - [ClusterService](#ClusterService)
         - [MasterService](#MasterService)
         - [ClusterApplierService](#ClusterApplierService)
-
-<!-- https://cloud.tencent.com/developer/article/1860217 -->
-
+    
 Cluster 模块封装了在集群层面要执行的任务 ，主要功能如下：
+
 - 管理集群状态，将新生成的集群状态发布到集群所有节点。
 - 调用 allocation 模块执行分片分配，决策哪些分片应该分配到哪个节点。
 - 在集群各节点中直接迁移分片，保持数据平衡。
@@ -91,13 +90,13 @@ curl -X GET "localhost: 9200/_cluster/state"
                         {
                             "state" : "STARTED",    //分片可能的状态: UNASSIGNED、INITIALIZING、
                                                     //STARTED、RELOCATING
-                             "primary" : true， //是否是主分片
+                             "primary" : true, //是否是主分片
                              "node" : "fc6s0S0hRi2yJvMo54qt_g", //所在分片
                              "relocating_node" : null, //正在“relocation”到哪个节点
                              "shard" : 1, // 分片1
                              "index" : "website", // 索引名
                              "allocation_ id" : {
-                                "id" : "jalbPWj JST2bDPCUO08ScQ" // 分片唯一的allocation_id配合in_sync_allocations使用
+                                "id" : "jalbPWj JST2bDPCUO08ScQ" //分片唯一的allocation_id配合in_sync_allocations使用
                              }
                          }
                      ]
@@ -112,12 +111,12 @@ curl -X GET "localhost: 9200/_cluster/state"
                     "primary" : true,
                     "node" : null,
                     "relocating_ node" : null,
-                    "shard" : 0，
+                    "shard" : 0,
                     "index" : "website",
                     " recovery_ source" : {
                     "type" : "EXISTING_ STORE"
                 },
-                "unassigned_ info" : {//未 分配的具体信息
+                "unassigned_ info" : {//未分配的具体信息
                     "reason" : "CLUSTER RECOVERED",
                     "at" : "2018-05-27T08:17:56.381Z",
                     "delayed" : false,
@@ -126,9 +125,9 @@ curl -X GET "localhost: 9200/_cluster/state"
             }
         ],
         "nodes" : {//节点列表
-        "fc6s0S0hRi2yJvMo54qt_g" : [//某个节点 上的分片列表        
+        "fc6s0S0hRi2yJvMo54qt_g" : [//某个节点上的分片列表        
             {      
-                "state" : "STARTED"， //分片信息， 同上
+                "state" : "STARTED", //分片信息，同上
                 "primary" : true,
                 "node" : " fc6s0S0hRi2yJvMo54qt_g",
                 "relocating_ node" : null,
@@ -137,13 +136,13 @@ curl -X GET "localhost: 9200/_cluster/state"
                 "allocation_id" : {
                     "id" : "jalbPWjJST2bDPCU008ScQ"
                 },
-                "snapshot_deletions" : {//请 求删除快照的信息
+                "snapshot_deletions" : {//请求删除快照的信息
                     "snapshot_deletions" :[ ]
                 },
-                "snapshots" : {//请求创 建快照的信息
+                "snapshots" : {//请求创建快照的信息
                     "snapshots" : [ ]
                 },
-                "restore" : {//请求恢 复快照的信息
+                "restore" : {//请求恢复快照的信息
                     "snapshots" : [ ]  
                 }
             }
@@ -218,3 +217,5 @@ ClusterApplierService 类图：
 成员：
 
 - UpdateTask：UpdateTask 内部类继承自 SourcePrioritizedRunnable，用于处理集群状态更新任务，与 `MasterService.Batcher` 类似。
+
+### 
