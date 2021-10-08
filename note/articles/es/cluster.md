@@ -2,6 +2,9 @@
 
 - 目录
     - [集群状态](#集群状态)
+    - [ClusterService](#ClusterService)
+        - [MasterService](#MasterService)
+        - [ClusterApplierService](#ClusterApplierService)
 
 <!-- https://cloud.tencent.com/developer/article/1860217 -->
 
@@ -148,3 +151,70 @@ curl -X GET "localhost: 9200/_cluster/state"
     }
 }
 ```
+
+### ClusterService
+
+ClusterService 是对集群管理的封装，它内部注入了 MasterService 和 ClusterApplierService 完成集群管理。
+
+ClusterService 类图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/ClusterService类图.png" width="600px">
+</div>
+
+在 ElasticSearch 启动阶段，`Node#start` 中执行了 `clusterService.start();`，其实是 clusterService 调用了 clusterApplierService 和 masterService 的 start 方法。
+
+```java
+@Override
+protected synchronized void doStart() {
+    // 处理启动过程中注册的任务
+    clusterApplierService.start();
+    // 处理集群状态更新任务
+    masterService.start();
+}
+```
+
+#### MasterService
+
+MasterService 类负责集群任务管理、执行等工作，它内部维护一个线程池执行任务，并对外提供了提交任务的接口。
+
+MasterService 类图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/MasterService类图.png" width="600px">
+</div>
+
+方法：
+
+- numberOfPendingTasks：获取待执行的任务数量。
+- pendingTasks：获取待执行的任务数量。
+- submitStateUpdateTask：提交集群状态更新任务。
+
+成员：
+
+- Batcher：Batcher 内部类负责管理和执行任务，继承自 TaskBatcher 类并继承了父类的 submitTasks 方法用于提交任务并交给线程池执行（submitStateUpdateTask 就是调用的该方法）。
+- PrioritizedEsThreadPoolExecutor：执行任务的线程池，本质使用优先级队列作为工作队列的线程池执行器。
+
+#### ClusterApplierService
+
+ClusterApplierService 类负责管理集群状态，以及通知各个 Applier 应用集群状态。
+主节点和从节点都会应用集群状态，如果某个模块需要处理集群状态，则调用 addStateApplier 方法添加一个处理器；如果想监听集群状态的变化，则通过 addListener 添加一个监听器。
+
+ClusterApplierService 类图：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/es/ClusterApplierService类图.png" width="600px">
+</div>
+
+方法：
+
+- addListener：添加一个集群状态监听器。
+- removeListener：删除一个集群状态监听器。
+- addStateApplier：添加一个集群状态处理器。
+- removeApplier：删除一个集群状态处理器。
+- state：获取集群状态。
+- onNewClusterState：收到新的集群状态。
+
+成员：
+
+- UpdateTask：UpdateTask 内部类继承自 SourcePrioritizedRunnable，用于处理集群状态更新任务，与 `MasterService.Batcher` 类似。
