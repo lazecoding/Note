@@ -238,3 +238,12 @@ public PrioritizedEsThreadPoolExecutor(String name, int corePoolSize, int maximu
     this.timer = timer;
 }
 ```
+
+### 任务的提交和执行
+
+当集群状态发送变化，就需要提交和执行集群任务。
+
+#### 提交任务
+
+
+#### 执行任务
