@@ -6,6 +6,9 @@
         - [MasterService](#MasterService)
         - [ClusterApplierService](#ClusterApplierService)
         - [线程池](#线程池)
+    - [任务的提交和执行](#任务的提交和执行)
+        - [提交任务](#提交任务)
+        - [执行任务](#执行任务)
           
 Cluster 模块封装了在集群层面要执行的任务 ，主要功能如下：
 
@@ -245,5 +248,90 @@ public PrioritizedEsThreadPoolExecutor(String name, int corePoolSize, int maximu
 
 #### 提交任务
 
+前面提到 submitStateUpdateTask 方法用于提交任务，最终它会调用 submitStateUpdateTasks 方法批量提交任务。
+
+- MasterService#submitStateUpdateTasks
+
+```java
+// org/elasticsearch/cluster/service/MasterService.java#submitStateUpdateTasks
+public <T> void submitStateUpdateTasks(final String source,
+                                       final Map<T, ClusterStateTaskListener> tasks, final ClusterStateTaskConfig config,
+                                       final ClusterStateTaskExecutor<T> executor) {
+    if (!lifecycle.started()) {
+        return;
+    }
+    final ThreadContext threadContext = threadPool.getThreadContext();
+    final Supplier<ThreadContext.StoredContext> supplier = threadContext.newRestorableContext(true);
+    try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
+        threadContext.markAsSystemContext();
+        // 对 XXXTask 做安全校验并转变为 UpdateTask，UpdateTask 是个包含优先级的任务，是 PrioritizedRunnable 的子类
+        List<Batcher.UpdateTask> safeTasks = tasks.entrySet().stream()
+            .map(e -> taskBatcher.new UpdateTask(config.priority(), source, e.getKey(), safe(e.getValue(), supplier), executor))
+            .collect(Collectors.toList());
+        // 批量提交任务
+        taskBatcher.submitTasks(safeTasks, config.timeout());
+    } catch (EsRejectedExecutionException e) {
+        // ignore cases where we are shutting down..., there is really nothing interesting
+        // to be done here...
+        if (!lifecycle.stoppedOrClosed()) {
+            throw e;
+        }
+    }
+}
+```
+
+这里首先对 XXXTask 做安全校验并转变为 UpdateTask，UpdateTask 是个包含优先级的任务，是 PrioritizedRunnable 的子类，接着调用 `TaskBatcher#submitTasks` 提交任务。
+
+- TaskBatcher#submitTasks
+
+```java
+// org/elasticsearch/cluster/service/TaskBatcher.java#submitTasks
+public void submitTasks(List<? extends BatchedTask> tasks, @Nullable TimeValue timeout) throws EsRejectedExecutionException {
+    if (tasks.isEmpty()) {
+        return;
+    }
+    final BatchedTask firstTask = tasks.get(0);
+    // 如果一次提交多个任务，则必须有相同的 batchingKey，这些任务将被批量执行
+    assert tasks.stream().allMatch(t -> t.batchingKey == firstTask.batchingKey) :
+        "tasks submitted in a batch should share the same batching key: " + tasks;
+    // convert to an identity map to check for dups based on task identity
+    // 转化为 Map，key 为 task 对象，例如 ClusterStateUpdateTask
+    // 如果提交的任务列表存在重复则抛出异常
+    final Map<Object, BatchedTask> tasksIdentity = tasks.stream().collect(Collectors.toMap(
+        BatchedTask::getTask,
+        Function.identity(),
+        (a, b) -> { throw new IllegalStateException("cannot add duplicate task: " + a); },
+        IdentityHashMap::new));
+   
+    synchronized (tasksPerBatchingKey) {
+        // 如果不存在 batchingKey ,则添加进去，如果存在则不操作
+        // 并获取对应的 value
+        LinkedHashSet<BatchedTask> existingTasks = tasksPerBatchingKey.computeIfAbsent(firstTask.batchingKey,
+            k -> new LinkedHashSet<>(tasks.size()));
+        for (BatchedTask existing : existingTasks) {
+            // check that there won't be two tasks with the same identity for the same batching key
+            // 检查对于同一个批任务，不可两个具有相同 identity 的任务
+            BatchedTask duplicateTask = tasksIdentity.get(existing.getTask());
+            if (duplicateTask != null) {
+                throw new IllegalStateException("task [" + duplicateTask.describeTasks(
+                    Collections.singletonList(existing)) + "] with source [" + duplicateTask.source + "] is already queued");
+            }
+        }
+        // 如果没异常，就添加新任务
+        existingTasks.addAll(tasks);
+    }
+    // 将任务放入线程池中执行
+    if (timeout != null) {
+        threadExecutor.execute(firstTask, timeout, () -> onTimeoutInternal(tasks, timeout));
+    } else {
+        threadExecutor.execute(firstTask);
+    }
+}
+```
+
+submitTasks 方法第一个参数为任务列表，第二个参数为超时时间；提交的任务本质上是一个 Runnable。submitTasks 方法会对任务进行去重，批量提交的任务会被添加到 existingTasks 集合中，之后会将提交的任务放到线程池中执行。
+
+虽然这里只将任务列表的第一个任务交个线程池执行，但是任务列表的全部任务被添加到 tasksPerBatchingKey 中，线程池执行任务时，根据任务的 batchingKey 从 tasksPerBatchingKey 中获取任务列表，
+然后批量执行这个任务列表。
 
 #### 执行任务
