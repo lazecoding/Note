@@ -335,3 +335,127 @@ submitTasks 方法第一个参数为任务列表，第二个参数为超时时�
 然后批量执行这个任务列表。
 
 #### 执行任务
+
+执行任务的入口是 `TaskBatcher.BatchedTask#run`。
+
+```java
+// org/elasticsearch/cluster/service/MasterService.java.TaskBatcher.BatchedTask#run
+@Override
+public void run() {
+    runIfNotProcessed(this);
+}
+```
+
+runIfNotProcessed 方法负责处理待执行的任务。
+
+- TaskBatcher#runIfNotProcessed
+
+```java
+void runIfNotProcessed(BatchedTask updateTask) {
+    // 如果该任务已经被处理，不需要再次处理； processed 是个原子常量
+    // if this task is already processed, it shouldn't execute other tasks with same batching key that arrived later,
+    // to give other tasks with different batching key a chance to execute.
+    if (updateTask.processed.get() == false) {
+        final List<BatchedTask> toExecute = new ArrayList<>();
+        final Map<String, List<BatchedTask>> processTasksBySource = new HashMap<>();
+        // 同步处理批处理键（同步锁），将需要执行的任务放到 toExecute 中
+        synchronized (tasksPerBatchingKey) {
+            // 根据 batchingKey 获取任务列表
+            LinkedHashSet<BatchedTask> pending = tasksPerBatchingKey.remove(updateTask.batchingKey);
+            if (pending != null) {
+                for (BatchedTask task : pending) {
+                    if (task.processed.getAndSet(true) == false) {
+                        logger.trace("will process {}", task);
+                        toExecute.add(task);
+                        processTasksBySource.computeIfAbsent(task.source, s -> new ArrayList<>()).add(task);
+                    } else {
+                        logger.trace("skipping {}, already processed", task);
+                    }
+                }
+            }
+        }
+
+        // 如果存在等待执行的任务
+        if (toExecute.isEmpty() == false) {
+            final String tasksSummary = processTasksBySource.entrySet().stream().map(entry -> {
+                String tasks = updateTask.describeTasks(entry.getValue());
+                return tasks.isEmpty() ? entry.getKey() : entry.getKey() + "[" + tasks + "]";
+            }).reduce((s1, s2) -> s1 + ", " + s2).orElse("");
+            // 执行任务
+            run(updateTask.batchingKey, toExecute, tasksSummary);
+        }
+    }
+}
+```
+
+根据 batchingKey 获取任务列表，用这个任务列表中尚未执行的任务构建新的列表，这个新列表就是真实要执行的任务列表。
+如果列表不为空，会调用 `MasterService.Batcher#run` 方法，进而调用 `MasterService#runTasks` 真正进行业务处理。
+
+- MasterService#runTasks
+
+```java
+// org/elasticsearch/cluster/service/MasterService.java#runTasks
+private void runTasks(TaskInputs taskInputs) {
+    final String summary = taskInputs.summary;
+    if (!lifecycle.started()) {
+        logger.debug("processing [{}]: ignoring, master service not started", summary);
+        return;
+    }
+
+    logger.debug("executing cluster state update for [{}]", summary);
+    final ClusterState previousClusterState = state();
+    // 判断本节点是否是 Master 节点
+    if (!previousClusterState.nodes().isLocalNodeElectedMaster() && taskInputs.runOnlyWhenMaster()) {
+        logger.debug("failing [{}]: local node is no longer master", summary);
+        taskInputs.onNoLongerMaster();
+        return;
+    }
+
+    final long computationStartTime = threadPool.relativeTimeInMillis();
+    // 执行任务并构建 TaskOutputs
+    final TaskOutputs taskOutputs = calculateTaskOutputs(taskInputs, previousClusterState);
+    taskOutputs.notifyFailedTasks();
+    final TimeValue computationTime = getTimeSince(computationStartTime);
+    logExecutionTime(computationTime, "compute cluster state update", summary);
+
+    // 根据 TaskOutputs 判断任务执行前后集群状态是否发生变化
+    if (taskOutputs.clusterStateUnchanged()) {
+        final long notificationStartTime = threadPool.relativeTimeInMillis();
+        taskOutputs.notifySuccessfulTasksOnUnchangedClusterState();
+        final TimeValue executionTime = getTimeSince(notificationStartTime);
+        logExecutionTime(executionTime, "notify listeners on unchanged cluster state", summary);
+    } else {
+        final ClusterState newClusterState = taskOutputs.newClusterState;
+        if (logger.isTraceEnabled()) {
+            logger.trace("cluster state updated, source [{}]\n{}", summary, newClusterState);
+        } else {
+            logger.debug("cluster state updated, version [{}], source [{}]", newClusterState.version(), summary);
+        }
+        final long publicationStartTime = threadPool.relativeTimeInMillis();
+        try {
+            // 获取 ClusterChangedEvent，用于发布集群状态更新事件
+            ClusterChangedEvent clusterChangedEvent = new ClusterChangedEvent(summary, newClusterState, previousClusterState);
+            // new cluster state, notify all listeners
+            final DiscoveryNodes.Delta nodesDelta = clusterChangedEvent.nodesDelta();
+            if (nodesDelta.hasChanges() && logger.isInfoEnabled()) {
+                String nodesDeltaSummary = nodesDelta.shortSummary();
+                if (nodesDeltaSummary.length() > 0) {
+                    logger.info("{}, term: {}, version: {}, delta: {}",
+                        summary, newClusterState.term(), newClusterState.version(), nodesDeltaSummary);
+                }
+            }
+
+            logger.debug("publishing cluster state version [{}]", newClusterState.version());
+            // 通过 ClusterStatePublisher 发布集群状态更新事件
+            publish(clusterChangedEvent, taskOutputs, publicationStartTime);
+        } catch (Exception e) {
+            handleException(summary, publicationStartTime, newClusterState, e);
+        }
+    }
+}
+```
+
+runTasks 会执行任务并发布集群状态，而且 MasterService 的行为只会在 Master 节点上执行。
+
+该方法首先校验了当前 Node 是否是 Master 节点，然后调用 `calculateTaskOutputs(taskInputs, previousClusterState);` 执行任务并获取 taskOutputs 对象。taskOutputs 对象保存了任务执行前后的集群状态，
+通过它来判断是否需要发布新的集群状态。如果集群状态发生变化，则执行集群状态发布业务。
