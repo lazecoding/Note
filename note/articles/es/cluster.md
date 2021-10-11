@@ -638,4 +638,4 @@ void sendApplyCommit() {
 }
 ```
 
-这里会通过网络模块发起提交请求，对应的 action 是 `internal:cluster/coordination/commit_state`，由对应的处理器处理请求完成提交请求。
+这里会通过 TransportService 发起提交请求，对应的 action 是 `internal:cluster/coordination/commit_state`，由对应的处理器处理请求完成提交请求。
