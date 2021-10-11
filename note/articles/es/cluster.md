@@ -9,6 +9,7 @@
     - [任务的提交和执行](#任务的提交和执行)
         - [提交任务](#提交任务)
         - [执行任务](#执行任务)
+        - [发布集群状态](#发布集群状态)
           
 Cluster 模块封装了在集群层面要执行的任务 ，主要功能如下：
 
@@ -459,3 +460,182 @@ runTasks 会执行任务并发布集群状态，而且 MasterService 的行为�
 
 该方法首先校验了当前 Node 是否是 Master 节点，然后调用 `calculateTaskOutputs(taskInputs, previousClusterState);` 执行任务并获取 taskOutputs 对象。taskOutputs 对象保存了任务执行前后的集群状态，
 通过它来判断是否需要发布新的集群状态。如果集群状态发生变化，则执行集群状态发布业务。
+
+#### 发布集群状态
+
+首先了解一下节点发现：DiscoveryModule 是发现模块，用于加载 `节点发现相关类` 的模块。Discovery 是节点发现的接口，有 Coordinator 和 ZenDiscovery 两种实现，其中 Coordinator 是 ElasticSearch 7.x 版本
+基于 Raft 算法实现的。
+
+发布集群状态由 `ClusterStatePublisher#publish` 展开，我们采用 Coordinator 中的实现执行。其中，集群状态的发布分成了两个阶段：发布阶段和提交阶段。
+
+- Coordinator#publish
+
+```java
+// org/elasticsearch/cluster/coordination/Coordinator.java#publish
+@Override
+public void publish(ClusterChangedEvent clusterChangedEvent, ActionListener<Void> publishListener, AckListener ackListener) {
+    try {
+        // 同步锁
+        synchronized (mutex) {
+            if (mode != Mode.LEADER || getCurrentTerm() != clusterChangedEvent.state().term()) {
+                logger.debug(() -> new ParameterizedMessage("[{}] failed publication as node is no longer master for term {}",
+                    clusterChangedEvent.source(), clusterChangedEvent.state().term()));
+                publishListener.onFailure(new FailedToCommitClusterStateException("node is no longer master for term " +
+                    clusterChangedEvent.state().term() + " while handling publication"));
+                return;
+            }
+
+            if (currentPublication.isPresent()) {
+                assert false : "[" + currentPublication.get() + "] in progress, cannot start new publication";
+                logger.warn(() -> new ParameterizedMessage("[{}] failed publication as already publication in progress",
+                    clusterChangedEvent.source()));
+                publishListener.onFailure(new FailedToCommitClusterStateException("publication " + currentPublication.get() +
+                    " already in progress"));
+                return;
+            }
+
+            assert assertPreviousStateConsistency(clusterChangedEvent);
+            // 集群状态
+            final ClusterState clusterState = clusterChangedEvent.state();
+
+            assert getLocalNode().equals(clusterState.getNodes().get(getLocalNode().getId())) :
+                getLocalNode() + " should be in published " + clusterState;
+
+            final PublicationTransportHandler.PublicationContext publicationContext =
+                publicationHandler.newPublicationContext(clusterChangedEvent);
+
+            final PublishRequest publishRequest = coordinationState.get().handleClientValue(clusterState);
+            // 实例化 CoordinatorPublication，包含 publishRequest 初始化
+            final CoordinatorPublication publication = new CoordinatorPublication(publishRequest, publicationContext,
+                new ListenableFuture<>(), ackListener, publishListener);
+            currentPublication = Optional.of(publication);
+            // 获取 DiscoveryNodes
+            final DiscoveryNodes publishNodes = publishRequest.getAcceptedState().nodes();
+            leaderChecker.setCurrentNodes(publishNodes);
+            followersChecker.setCurrentNodes(publishNodes);
+            lagDetector.setTrackedNodes(publishNodes);
+            // // 开始发布
+            publication.start(followersChecker.getFaultyNodes());
+        }
+    } catch (Exception e) {
+        logger.debug(() -> new ParameterizedMessage("[{}] publishing failed", clusterChangedEvent.source()), e);
+        publishListener.onFailure(new FailedToCommitClusterStateException("publishing failed", e));
+    }
+}
+```
+
+这里主要实例化 CoordinatorPublication 和获取集群节点，最终调用 `Publication#start`。
+
+- Publication#start
+
+```java
+// org/elasticsearch/cluster/coordination/Publication.java#start
+public void start(Set<DiscoveryNode> faultyNodes) {
+    logger.trace("publishing {} to {}", publishRequest, publicationTargets);
+
+    for (final DiscoveryNode faultyNode : faultyNodes) {
+        onFaultyNode(faultyNode);
+    }
+    onPossibleCommitFailure();
+    // 发送发布请求
+    publicationTargets.forEach(PublicationTarget::sendPublishRequest);
+}
+```
+
+这里的重点是 `PublicationTarget::sendPublishRequest`。
+
+- Publication#sendPublishRequest
+
+```java
+// org/elasticsearch/cluster/coordination/Publication.java#sendPublishRequest
+void sendPublishRequest() {
+    if (isFailed()) {
+        return;
+    }
+    assert state == PublicationTargetState.NOT_STARTED : state + " -> " + PublicationTargetState.SENT_PUBLISH_REQUEST;
+    state = PublicationTargetState.SENT_PUBLISH_REQUEST;
+    // 发送发布请求，并设置响应处理器
+    Publication.this.sendPublishRequest(discoveryNode, publishRequest, new PublishResponseHandler());
+    // TODO Can this ^ fail with an exception? Target should be failed if so.
+    assert publicationCompletedIffAllTargetsInactiveOrCancelled();
+}
+```
+
+`Publication.this.sendPublishRequest(discoveryNode, publishRequest, new PublishResponseHandler());` 发送发布请求，并设置响应处理器 PublishResponseHandler。
+
+其他节点接受到请求处理并响应，由 PublishResponseHandler 负责处理响应。
+
+- PublishResponseHandler#onResponse
+
+```java
+// org/elasticsearch/cluster/coordination/Publication.java.PublicationTarget.PublishResponseHandler#onResponse
+@Override
+public void onResponse(PublishWithJoinResponse response) {
+    if (isFailed()) {
+        logger.debug("PublishResponseHandler.handleResponse: already failed, ignoring response from [{}]", discoveryNode);
+        assert publicationCompletedIffAllTargetsInactiveOrCancelled();
+        return;
+    }
+
+    if (response.getJoin().isPresent()) {
+        final Join join = response.getJoin().get();
+        assert discoveryNode.equals(join.getSourceNode());
+        assert join.getTerm() == response.getPublishResponse().getTerm() : response;
+        logger.trace("handling join within publish response: {}", join);
+        onJoin(join);
+    } else {
+        logger.trace("publish response from {} contained no join", discoveryNode);
+        onMissingJoin(discoveryNode);
+    }
+
+    assert state == PublicationTargetState.SENT_PUBLISH_REQUEST : state + " -> " + PublicationTargetState.WAITING_FOR_QUORUM;
+    state = PublicationTargetState.WAITING_FOR_QUORUM;
+    handlePublishResponse(response.getPublishResponse());
+
+    assert publicationCompletedIffAllTargetsInactiveOrCancelled();
+}
+```
+
+这里会对其他阶段响应做处理，进一步看 handlePublishResponse 方法。
+
+- PublicationTarget#handlePublishResponse
+
+```java
+// org/elasticsearch/cluster/coordination/Publication.java.PublicationTarget#handlePublishResponse
+void handlePublishResponse(PublishResponse publishResponse) {
+    assert isWaitingForQuorum() : this;
+    logger.trace("handlePublishResponse: handling [{}] from [{}])", publishResponse, discoveryNode);
+    if (applyCommitRequest.isPresent()) {
+        sendApplyCommit();
+    } else {
+        try {
+            Publication.this.handlePublishResponse(discoveryNode, publishResponse).ifPresent(applyCommit -> {
+                assert applyCommitRequest.isPresent() == false;
+                applyCommitRequest = Optional.of(applyCommit);
+                ackListener.onCommit(TimeValue.timeValueMillis(currentTimeSupplier.getAsLong() - startTime));
+                publicationTargets.stream().filter(PublicationTarget::isWaitingForQuorum)
+                    .forEach(PublicationTarget::sendApplyCommit);
+            });
+        } catch (Exception e) {
+            setFailed(e);
+            onPossibleCommitFailure();
+        }
+    }
+}
+```
+
+当完成发布阶段，就进入提交阶段，即 sendApplyCommit 方法。
+
+```java
+// org/elasticsearch/cluster/coordination/Publication.java.PublicationTarget#sendApplyCommit
+void sendApplyCommit() {
+    assert state == PublicationTargetState.WAITING_FOR_QUORUM : state + " -> " + PublicationTargetState.SENT_APPLY_COMMIT;
+    state = PublicationTargetState.SENT_APPLY_COMMIT;
+    assert applyCommitRequest.isPresent();
+    // 发起提交请求，并设置响应处理器 》 COMMIT_STATE_ACTION_NAME = "internal:cluster/coordination/commit_state";
+    Publication.this.sendApplyCommit(discoveryNode, applyCommitRequest.get(), new ApplyCommitResponseHandler());
+    assert publicationCompletedIffAllTargetsInactiveOrCancelled();
+}
+```
+
+这里会通过网络模块发起提交请求，对应的 action 是 `internal:cluster/coordination/commit_state`，由对应的处理器处理请求完成提交请求。
