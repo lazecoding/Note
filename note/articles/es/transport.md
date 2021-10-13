@@ -48,37 +48,37 @@ NetworkModule 的构造函数主要处理了三件事情：注册 HTTP 模块、
 ```java
 // org/elasticsearch/common/network/NetworkModule.java#NetworkModule
 public NetworkModule(Settings settings, boolean transportClient, List<NetworkPlugin> plugins, ThreadPool threadPool,
-        BigArrays bigArrays,
-        PageCacheRecycler pageCacheRecycler,
-        CircuitBreakerService circuitBreakerService,
-        NamedWriteableRegistry namedWriteableRegistry,
-        NamedXContentRegistry xContentRegistry,
-        NetworkService networkService, HttpServerTransport.Dispatcher dispatcher) {
-        this.settings = settings;
-        this.transportClient = transportClient;
-        for (NetworkPlugin plugin : plugins) {
+                     BigArrays bigArrays,
+                     PageCacheRecycler pageCacheRecycler,
+                     CircuitBreakerService circuitBreakerService,
+                     NamedWriteableRegistry namedWriteableRegistry,
+                     NamedXContentRegistry xContentRegistry,
+                     NetworkService networkService, HttpServerTransport.Dispatcher dispatcher) {
+    this.settings = settings;
+    this.transportClient = transportClient;
+    for (NetworkPlugin plugin : plugins) {
         Map<String, Supplier<HttpServerTransport>> httpTransportFactory = plugin.getHttpTransports(settings, threadPool, bigArrays,
-        pageCacheRecycler, circuitBreakerService, xContentRegistry, networkService, dispatcher);
+            pageCacheRecycler, circuitBreakerService, xContentRegistry, networkService, dispatcher);
         if (transportClient == false) {
-        for (Map.Entry<String, Supplier<HttpServerTransport>> entry : httpTransportFactory.entrySet()) {
-        // 注册 HTTP 模块
-        registerHttpTransport(entry.getKey(), entry.getValue());
-        }
+            for (Map.Entry<String, Supplier<HttpServerTransport>> entry : httpTransportFactory.entrySet()) {
+                // 注册 HTTP 模块
+                registerHttpTransport(entry.getKey(), entry.getValue());
+            }
         }
         Map<String, Supplier<Transport>> transportFactory = plugin.getTransports(settings, threadPool, pageCacheRecycler,
-        circuitBreakerService, namedWriteableRegistry, networkService);
+            circuitBreakerService, namedWriteableRegistry, networkService);
         for (Map.Entry<String, Supplier<Transport>> entry : transportFactory.entrySet()) {
-        // 注册传输模块
-        registerTransport(entry.getKey(), entry.getValue());
+            // 注册传输模块
+            registerTransport(entry.getKey(), entry.getValue());
         }
         List<TransportInterceptor> transportInterceptors = plugin.getTransportInterceptors(namedWriteableRegistry,
-        threadPool.getThreadContext());
+            threadPool.getThreadContext());
         for (TransportInterceptor interceptor : transportInterceptors) {
-        // 注册拦截器
-        registerTransportInterceptor(interceptor);
+            // 注册拦截器
+            registerTransportInterceptor(interceptor);
         }
-        }
-        }
+    }
+}
 ```
 
 NetworkModule 内部组件的初始化是通过插件方式加载的。在其构造函数中传入 NetworkPlugin 列表，NetworkPlugin 是一个接口类， Netty4Plugin 是这个接口的实现，如下图所示：

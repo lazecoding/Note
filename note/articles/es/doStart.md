@@ -99,69 +99,66 @@ ElasticSearch 类图：
 ```java
 // org/elasticsearch/bootstrap/Elasticsearch.java#Elasticsearch
 Elasticsearch() {
-        super("starts elasticsearch", () -> {}); // we configure logging later so we override the base class from configuring logging
-        // --V,--version: 打印版本信息
-        versionOption = parser.acceptsAll(Arrays.asList("V", "version"),
+    super("starts elasticsearch", () -> {}); // we configure logging later so we override the base class from configuring logging
+    // --V,--version: 打印版本信息
+    versionOption = parser.acceptsAll(Arrays.asList("V", "version"),
         "Prints elasticsearch version information and exits");
-        // --d,--daemonize: 后台启动
-        daemonizeOption = parser.acceptsAll(Arrays.asList("d", "daemonize"),
+    // --d,--daemonize: 后台启动
+    daemonizeOption = parser.acceptsAll(Arrays.asList("d", "daemonize"),
         "Starts Elasticsearch in the background")
         .availableUnless(versionOption);
-        // --p，--pidfile:启动时在指定路径创建一个 Pid 文件，报错当前进程的 Pid
-        pidfileOption = parser.acceptsAll(Arrays.asList("p", "pidfile"),
+    // --p，--pidfile:启动时在指定路径创建一个 Pid 文件，报错当前进程的 Pid
+    pidfileOption = parser.acceptsAll(Arrays.asList("p", "pidfile"),
         "Creates a pid file in the specified path on start")
         .availableUnless(versionOption)
         .withRequiredArg()
         .withValuesConvertedBy(new PathConverter());
-        // --q，--quiet:
-        quietOption = parser.acceptsAll(Arrays.asList("q", "quiet"),
+    // --q，--quiet:
+    quietOption = parser.acceptsAll(Arrays.asList("q", "quiet"),
         "Turns off standard output/error streams logging in console")
         .availableUnless(versionOption)
         .availableUnless(daemonizeOption);
-        }
+}
 
 // org/elasticsearch/cli/EnvironmentAwareCommand.java#EnvironmentAwareCommand
 public EnvironmentAwareCommand(final String description, final Runnable beforeMain) {
-        super(description, beforeMain);
-        // 设置某项属性
-        this.settingOption = parser.accepts("E", "Configure a setting").withRequiredArg().ofType(KeyValuePair.class);
-        }
+    super(description, beforeMain);
+    // 设置某项属性
+    this.settingOption = parser.accepts("E", "Configure a setting").withRequiredArg().ofType(KeyValuePair.class);
+}
 ```
 
 - 入口函数：
 
 ```java
-/**
- * elasticsearch 启动入口
- */
 // org/elasticsearch/bootstrap/Elasticsearch.java#main
 public static void main(final String[] args) throws Exception {
-        // 覆盖 DNS 缓存测策略
-        overrideDnsCachePolicyProperties();
-        /*
-         * We want the JVM to think there is a security manager installed so that if internal policy decisions that would be based on the
-         * presence of a security manager or lack thereof act as if there is a security manager present (e.g., DNS cache policy). This
-         * forces such policies to take effect immediately.
-         */
-        System.setSecurityManager(new SecurityManager() {
+    // 覆盖 DNS 缓存测策略
+    overrideDnsCachePolicyProperties();
+    /*
+     * We want the JVM to think there is a security manager installed so that if internal policy decisions that would be based on the
+     * presence of a security manager or lack thereof act as if there is a security manager present (e.g., DNS cache policy). This
+     * forces such policies to take effect immediately.
+     */
+    System.setSecurityManager(new SecurityManager() {
 
-@Override
-public void checkPermission(Permission perm) {
-        // grant all permissions so that we can later set the security manager to the one that we want
+        @Override
+        public void checkPermission(Permission perm) {
+            // grant all permissions so that we can later set the security manager to the one that we want
         }
 
-        });
-        // 注册错误监听器（启动之初就开始注册，为了不遗漏错误日志）
-        LogConfigurator.registerErrorListener();
-// 创建 Elasticsearch 实例，处理命令行参数
-final Elasticsearch elasticsearch = new Elasticsearch();
-        // 入口
-        int status = main(args, elasticsearch, Terminal.DEFAULT);
-        if (status != ExitCodes.OK) {
+    });
+    // 注册错误监听器（启动之初就开始注册，为了不遗漏错误日志）
+    LogConfigurator.registerErrorListener();
+    // 创建 Elasticsearch 实例，处理命令行参数
+    final Elasticsearch elasticsearch = new Elasticsearch();
+    // 入口
+    int status = main(args, elasticsearch, Terminal.DEFAULT);
+    if (status != ExitCodes.OK) {
         // 关闭
         exit(status);
-        }
-        }
+    }
+}
 ```
 
 入口函数创建了 Elasticsearch 实例，在构造函数中处理了命令行参数，之后调用 main 方法（重载的方法，非入口函数），执行启动流程。
@@ -169,54 +166,51 @@ final Elasticsearch elasticsearch = new Elasticsearch();
 - Command#main
 
 ```java
-/**
- * 从 args 中解析该命令的选项并执行它
- */
 // org/elasticsearch/cli/Command.java#main
 public final int main(String[] args, Terminal terminal) throws Exception {
-        // 是否添加钩子：在 JVM 关闭前清理资源
-        if (addShutdownHook()) {
+    // 是否添加钩子：在 JVM 关闭前清理资源
+    if (addShutdownHook()) {
 
         shutdownHookThread = new Thread(() -> {
-        try {
-        this.close();
-        } catch (final IOException e) {
-        try (
-        StringWriter sw = new StringWriter();
-        PrintWriter pw = new PrintWriter(sw)) {
-        e.printStackTrace(pw);
-        terminal.errorPrintln(sw.toString());
-        } catch (final IOException impossible) {
-        // StringWriter#close declares a checked IOException from the Closeable interface but the Javadocs for StringWriter
-        // say that an exception here is impossible
-        throw new AssertionError(impossible);
-        }
-        }
+            try {
+                this.close();
+            } catch (final IOException e) {
+                try (
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw)) {
+                    e.printStackTrace(pw);
+                    terminal.errorPrintln(sw.toString());
+                } catch (final IOException impossible) {
+                    // StringWriter#close declares a checked IOException from the Closeable interface but the Javadocs for StringWriter
+                    // say that an exception here is impossible
+                    throw new AssertionError(impossible);
+                }
+            }
         });
         // 添加钩子：在 JVM 关闭前清理资源
         Runtime.getRuntime().addShutdownHook(shutdownHookThread);
-        }
+    }
 
-        beforeMain.run();
+    beforeMain.run();
 
-        try {
+    try {
         // Executes the command, but all errors are thrown.
         // 执行命令，但抛出所有错误。
         mainWithoutErrorHandling(args, terminal);
-        } catch (OptionException e) {
+    } catch (OptionException e) {
         // print help to stderr on exceptions
         printHelp(terminal, true);
         terminal.errorPrintln(Terminal.Verbosity.SILENT, "ERROR: " + e.getMessage());
         return ExitCodes.USAGE;
-        } catch (UserException e) {
+    } catch (UserException e) {
         if (e.exitCode == ExitCodes.USAGE) {
-        printHelp(terminal, true);
+            printHelp(terminal, true);
         }
         terminal.errorPrintln(Terminal.Verbosity.SILENT, "ERROR: " + e.getMessage());
         return e.exitCode;
-        }
-        return ExitCodes.OK;
-        }
+    }
+    return ExitCodes.OK;
+}
 ```
 
 Command 是 Elasticsearch 父类的父类，Elasticsearch 入口函数会调用到继承父类的方法 `Command#main`。该方法中 mainWithoutErrorHandling 负责执行命令，在此之间添加钩子函数用于在 JVM 退出之前清理资源。
@@ -229,24 +223,24 @@ Command 是 Elasticsearch 父类的父类，Elasticsearch 入口函数会调用�
  */
 // org/elasticsearch/cli/Command.java#mainWithoutErrorHandling
 void mainWithoutErrorHandling(String[] args, Terminal terminal) throws Exception {
-// 解析 args
-final OptionSet options = parser.parse(args);
+    // 解析 args
+    final OptionSet options = parser.parse(args);
 
-        if (options.has(helpOption)) {
+    if (options.has(helpOption)) {
         printHelp(terminal, false);
         return;
-        }
+    }
 
-        if (options.has(silentOption)) {
+    if (options.has(silentOption)) {
         terminal.setVerbosity(Terminal.Verbosity.SILENT);
-        } else if (options.has(verboseOption)) {
+    } else if (options.has(verboseOption)) {
         terminal.setVerbosity(Terminal.Verbosity.VERBOSE);
-        } else {
+    } else {
         terminal.setVerbosity(Terminal.Verbosity.NORMAL);
-        }
+    }
 
-        execute(terminal, options);
-        }
+    execute(terminal, options);
+}
 ```
 
 mainWithoutErrorHandling 方法首先将参数解析成 OptionSet 对象并做一定加工，再调用 execute 方法执行业务。
@@ -257,31 +251,31 @@ mainWithoutErrorHandling 方法首先将参数解析成 OptionSet 对象并做�
 // org/elasticsearch/cli/EnvironmentAwareCommand.java#execute
 @Override
 protected void execute(Terminal terminal, OptionSet options) throws Exception {
-final Map<String, String> settings = new HashMap<>();
-        for (final KeyValuePair kvp : settingOption.values(options)) {
+    final Map<String, String> settings = new HashMap<>();
+    for (final KeyValuePair kvp : settingOption.values(options)) {
         if (kvp.value.isEmpty()) {
-        throw new UserException(ExitCodes.USAGE, "setting [" + kvp.key + "] must not be empty");
+            throw new UserException(ExitCodes.USAGE, "setting [" + kvp.key + "] must not be empty");
         }
         if (settings.containsKey(kvp.key)) {
-final String message = String.format(
-        Locale.ROOT,
-        "setting [%s] already set, saw [%s] and [%s]",
-        kvp.key,
-        settings.get(kvp.key),
-        kvp.value);
-        throw new UserException(ExitCodes.USAGE, message);
+            final String message = String.format(
+                Locale.ROOT,
+                "setting [%s] already set, saw [%s] and [%s]",
+                kvp.key,
+                settings.get(kvp.key),
+                kvp.value);
+            throw new UserException(ExitCodes.USAGE, message);
         }
         settings.put(kvp.key, kvp.value);
-        }
+    }
 
-        // 确保给定设置存在，如果没有设置，则从系统属性中读取。
-        putSystemPropertyIfSettingIsMissing(settings, "path.data", "es.path.data");
-        putSystemPropertyIfSettingIsMissing(settings, "path.home", "es.path.home");
-        putSystemPropertyIfSettingIsMissing(settings, "path.logs", "es.path.logs");
+    // 确保给定设置存在，如果没有设置，则从系统属性中读取。
+    putSystemPropertyIfSettingIsMissing(settings, "path.data", "es.path.data");
+    putSystemPropertyIfSettingIsMissing(settings, "path.home", "es.path.home");
+    putSystemPropertyIfSettingIsMissing(settings, "path.logs", "es.path.logs");
 
-        // createEnv 创建 Environment
-        execute(terminal, options, createEnv(settings));
-        }
+    // createEnv 创建 Environment
+    execute(terminal, options, createEnv(settings));
+}
 ```
 
 接着调用的 execute 方法继承自 EnvironmentAwareCommand 抽象类。该方法对 options 进一步解析，初始化在 settings 变量中，这是一个 Map；接着对 `es.path.data`、`es.path.home` 和 `es.path.logs` 属性配置做校验；
@@ -292,49 +286,49 @@ final String message = String.format(
 ```java
 // org/elasticsearch/cli/EnvironmentAwareCommand.java#createEnv
 protected final Environment createEnv(final Settings baseSettings, final Map<String, String> settings) throws UserException {
-final String esPathConf = System.getProperty("es.path.conf");
-        if (esPathConf == null) {
+    final String esPathConf = System.getProperty("es.path.conf");
+    if (esPathConf == null) {
         throw new UserException(ExitCodes.CONFIG, "the system property [es.path.conf] must be set");
-        }
-        return InternalSettingsPreparer.prepareEnvironment(baseSettings, settings,
+    }
+    return InternalSettingsPreparer.prepareEnvironment(baseSettings, settings,
         getConfigPath(esPathConf),
         // HOSTNAME is set by elasticsearch-env and elasticsearch-env.bat so it is always available
         () -> System.getenv("HOSTNAME"));
-        }
+}
 
 // org/elasticsearch/node/InternalSettingsPreparer.java#prepareEnvironment
 public static Environment prepareEnvironment(Settings input, Map<String, String> properties,
         Path configPath, Supplier<String> defaultNodeName) {
-        // just create enough settings to build the environment, to get the config dir
-        Settings.Builder output = Settings.builder();
-        initializeSettings(output, input, properties);
-        Environment environment = new Environment(output.build(), configPath);
+    // just create enough settings to build the environment, to get the config dir
+    Settings.Builder output = Settings.builder();
+    initializeSettings(output, input, properties);
+    Environment environment = new Environment(output.build(), configPath);
 
-        if (Files.exists(environment.configFile().resolve("elasticsearch.yaml"))) {
+    if (Files.exists(environment.configFile().resolve("elasticsearch.yaml"))) {
         throw new SettingsException("elasticsearch.yaml was deprecated in 5.5.0 and must be renamed to elasticsearch.yml");
-        }
+    }
 
-        if (Files.exists(environment.configFile().resolve("elasticsearch.json"))) {
+    if (Files.exists(environment.configFile().resolve("elasticsearch.json"))) {
         throw new SettingsException("elasticsearch.json was deprecated in 5.5.0 and must be converted to elasticsearch.yml");
-        }
+    }
 
-        output = Settings.builder(); // start with a fresh output
-        Path path = environment.configFile().resolve("elasticsearch.yml");
-        if (Files.exists(path)) {
+    output = Settings.builder(); // start with a fresh output
+    Path path = environment.configFile().resolve("elasticsearch.yml");
+    if (Files.exists(path)) {
         try {
-        output.loadFromPath(path);
+            output.loadFromPath(path);
         } catch (IOException e) {
-        throw new SettingsException("Failed to load settings from " + path.toString(), e);
+            throw new SettingsException("Failed to load settings from " + path.toString(), e);
         }
-        }
+    }
 
-        // re-initialize settings now that the config file has been loaded
-        initializeSettings(output, input, properties);
-        checkSettingsForTerminalDeprecation(output);
-        finalizeSettings(output, defaultNodeName);
+    // re-initialize settings now that the config file has been loaded
+    initializeSettings(output, input, properties);
+    checkSettingsForTerminalDeprecation(output);
+    finalizeSettings(output, defaultNodeName);
 
-        return new Environment(output.build(), configPath);
-        }
+    return new Environment(output.build(), configPath);
+}
 ```
 
 在执行 `execute(terminal, options, createEnv(settings));` 时，会先执行 `createEnv(settings)`。顾名思义，创建环境对象。createEnv 方法校验 `es.path.conf` 属性后调用 prepareEnvironment 方法，
@@ -347,57 +341,58 @@ public static Environment prepareEnvironment(Settings input, Map<String, String>
 ```java
 @Override
 // org/elasticsearch/bootstrap/Elasticsearch.java#execute
+@Override
 protected void execute(Terminal terminal, OptionSet options, Environment env) throws UserException {
-        if (options.nonOptionArguments().isEmpty() == false) {
+    if (options.nonOptionArguments().isEmpty() == false) {
         throw new UserException(ExitCodes.USAGE, "Positional arguments not allowed, found " + options.nonOptionArguments());
-        }
-        // JVM 版本信息
-        if (options.has(versionOption)) {
-final String versionOutput = String.format(
-        Locale.ROOT,
-        "Version: %s, Build: %s/%s/%s/%s, JVM: %s",
-        Build.CURRENT.getQualifiedVersion(),
-        Build.CURRENT.flavor().displayName(),
-        Build.CURRENT.type().displayName(),
-        Build.CURRENT.hash(),
-        Build.CURRENT.date(),
-        JvmInfo.jvmInfo().version()
+    }
+    // JVM 版本信息
+    if (options.has(versionOption)) {
+        final String versionOutput = String.format(
+            Locale.ROOT,
+            "Version: %s, Build: %s/%s/%s/%s, JVM: %s",
+            Build.CURRENT.getQualifiedVersion(),
+            Build.CURRENT.flavor().displayName(),
+            Build.CURRENT.type().displayName(),
+            Build.CURRENT.hash(),
+            Build.CURRENT.date(),
+            JvmInfo.jvmInfo().version()
         );
         terminal.println(versionOutput);
         return;
-        }
+    }
 
-final boolean daemonize = options.has(daemonizeOption);
-final Path pidFile = pidfileOption.value(options);
-final boolean quiet = options.has(quietOption);
+    final boolean daemonize = options.has(daemonizeOption);
+    final Path pidFile = pidfileOption.value(options);
+    final boolean quiet = options.has(quietOption);
 
-        // a misconfigured java.io.tmpdir can cause hard-to-diagnose problems later, so reject it immediately
-        try {
+    // a misconfigured java.io.tmpdir can cause hard-to-diagnose problems later, so reject it immediately
+    try {
         env.validateTmpFile();
-        } catch (IOException e) {
+    } catch (IOException e) {
         throw new UserException(ExitCodes.CONFIG, e.getMessage());
-        }
+    }
 
-        try {
+    try {
         // 启动类 Init
         init(daemonize, pidFile, quiet, env);
-        } catch (NodeValidationException e) {
+    } catch (NodeValidationException e) {
         throw new UserException(ExitCodes.CONFIG, e.getMessage());
-        }
-        }
+    }
+}
 
 // org/elasticsearch/bootstrap/Elasticsearch.java#init
-        void init(final boolean daemonize, final Path pidFile, final boolean quiet, Environment initialEnv)
-        throws NodeValidationException, UserException {
-        try {
+void init(final boolean daemonize, final Path pidFile, final boolean quiet, Environment initialEnv)
+    throws NodeValidationException, UserException {
+    try {
         // 启动类 Init，开始启动 ElasticSearch
         Bootstrap.init(!daemonize, pidFile, quiet, initialEnv);
-        } catch (BootstrapException | RuntimeException e) {
+    } catch (BootstrapException | RuntimeException e) {
         // format exceptions to the console in a special way
         // to avoid 2MB stacktraces from guice, etc.
         throw new StartupException(e);
-        }
-        }
+    }
+}
 ```
 
 `Elasticsearch#execute` 会打印 JVM 信息并执行 `init(daemonize, pidFile, quiet, env);`,init 方法执行 `Bootstrap.init(!daemonize, pidFile, quiet, initialEnv);`。
