@@ -40,6 +40,9 @@
 ### 计算机
 - [计算机网络](https://github.com/lazecoding/Note/blob/main/note/articles/network/README.md)
 
+### 工具
+
+- [WebSocket 客户端](https://github.com/lazecoding/Note/blob/main/note/articles/tool/WebSocket-Client.md)
 
 ## 读物
 - [提问的智慧](https://github.com/lazecoding/Note/blob/main/doc/提问的智慧.md)
