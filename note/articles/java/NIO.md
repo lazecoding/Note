@@ -1,6 +1,11 @@
 # NIO
 
 - 目录
+  - [IO 和 NIO](#IO-和-NIO)
+    - [面向流和面向缓冲区](#面向流和面向缓冲区)
+    - [Stream 和 Channel](#Stream-和-Channel)
+    - [IO 模型](#IO-模型)
+    - [零拷贝](#零拷贝)
   - [Java NIO](#Java-NIO)
     - [Buffer](#Buffer)
       - [ByteBuffer](#ByteBuffer)
@@ -23,6 +28,125 @@ NIO 速度的提升来自于使用了更接近操作系统 I/O 执行方式的�
 通过小车装煤，再从车里取矿。换句话说，我们不能直接和 Channel 交互; 我们需要与 Buffer 交互并将 Buffer 中的数据发送到 Channel 中；Channel 需要从 Buffer 中提取或放入数据。
 
 ### IO 和 NIO
+
+传统 IO 是阻塞的、面向流(Stream)的，NIO 是非阻塞的、面向缓冲区(Buffer)的。
+
+#### 面向流和面向缓冲区
+
+- IO
+
+传统 IO 在传输数据时，根据输入输出的不同需要分别建立不同的链接，而且传输的数据是以流的形式在链接上进行传输的。
+
+就像自来水要通过水管将自来水厂和家连接起来一样。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/传统IO示意图.png" width="600px">
+</div>
+
+- NIO
+
+NIO 在传输数据时，会在输入输出端之间建立通道，然后将数据放入到缓冲区中。缓冲区通过通道来传输数据。
+
+这里通道就像是铁路，能够连通两个地点。缓冲区就像是火车，能够真正地进行数据的传输。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/NIO示意图.png" width="600px">
+</div>
+
+#### Stream 和 Channel
+
+- Stream 不会自动缓冲数据，Channel 会利用系统提供的发送缓冲区、接收缓冲区（更为底层）。
+- Stream 仅支持阻塞 API，Channel 同时支持阻塞、非阻塞 API，网络 Channel 可配合 Selector 实现多路复用。
+- 二者均为全双工，即读写可以同时进行。
+
+#### IO 模型
+
+请点击 [IO 模型](https://github.com/lazecoding/Note/blob/main/note/articles/network/I0Model.md#IO-模型) 了解相关内容。
+
+#### 零拷贝
+
+##### 传统 IO 问题
+
+传统的 IO 将一个文件通过 socket 写出：
+
+```java
+File f = new File("helloword/data.txt");
+RandomAccessFile file = new RandomAccessFile(file, "r");
+
+byte[] buf = new byte[(int)f.length()];
+file.read(buf);
+
+Socket socket = ...;
+socket.getOutputStream().write(buf);
+```
+
+内部工作流程：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/传统IO数据拷贝.png" width="600px">
+</div>
+
+1. java 本身并不具备 IO 读写能力，因此 read 方法调用后，要从 java 程序的**用户态**切换至**内核态**，去调用操作系统的读能力，将数据读入**内核缓冲区**。
+这期间用户线程阻塞，操作系统使用 DMA（Direct Memory Access）来实现文件读，其间也不会使用 CPU。
+   > DMA 也可以理解为硬件单元，用来解放 CPU 完成文件 IO。
+3. 从**内核态**切换回**用户态**，将数据从**内核缓冲区**读入**用户缓冲区**（即 byte[] buf），这期间 CPU 会参与拷贝，无法利用 DMA。
+4. 调用 write 方法，这时将数据从**用户缓冲区**（byte[] buf）写入 **socket 缓冲区**，CPU 会参与拷贝。
+5. 接下来要向网卡写数据，这项能力 java 又不具备，因此又得从**用户态**切换至**内核态**，调用操作系统的写能力，使用 DMA 将 **socket 缓冲区**的数据写入网卡，不会使用 CPU。
+
+可以看到中间环节较多，java 的 IO 实际不是物理设备级别的读写，而是缓存的复制，底层的真正读写是操作系统来完成的。
+
+* 用户态与内核态的切换发生了 3 次，这个操作比较重量级。
+* 数据拷贝了共 4 次。
+
+#### NIO 优化
+
+通过 DirectByteBuf：
+
+* ByteBuffer.allocate(10)  HeapByteBuffer 使用的还是 java 内存。
+* ByteBuffer.allocateDirect(10)  DirectByteBuffer 使用的是操作系统内存。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/NIO数据拷贝1.png" width="600px">
+</div>
+
+大部分步骤与优化前相同，不再赘述。唯有一点：java 可以使用 DirectByteBuf 将堆外内存映射到 jvm 内存中来直接访问使用。
+
+* 这块内存不受 jvm 垃圾回收的影响，因此内存地址固定，有助于 IO 读写。
+* java 中的 DirectByteBuf 对象仅维护了此内存的虚引用，内存回收分成两步。
+  * DirectByteBuf 对象被垃圾回收，将虚引用加入引用队列。
+  * 通过专门线程访问引用队列，根据虚引用释放堆外内存。
+* 减少了一次数据拷贝，用户态与内核态的切换次数没有减少。
+
+`进一步优化（底层采用了 linux 2.1 后提供的 sendFile 方法`），java 中对应着两个 channel 调用 transferTo/transferFrom 方法拷贝数据。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/NIO数据拷贝2.png" width="600px">
+</div>
+
+1. java 调用 transferTo 方法后，要从 java 程序的**用户态**切换至**内核态**，使用 DMA将数据读入**内核缓冲区**，不会使用 CPU。
+2. 数据从**内核缓冲区**传输到 **socket 缓冲区**，CPU 会参与拷贝。
+3. 最后使用 DMA 将 **socket 缓冲区**的数据写入网卡，不会使用 CPU。
+
+可以看到：
+
+* 只发生了一次用户态与内核态的切换。
+* 数据拷贝了 3 次。
+
+`进一步优化（linux 2.4）`：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/NIO数据拷贝3.png" width="600px">
+</div>
+
+1. java 调用 transferTo 方法后，要从 java 程序的**用户态**切换至**内核态**，使用 DMA将数据读入**内核缓冲区**，不会使用 CPU。
+2. 只会将一些 offset 和 length 信息拷入 **socket 缓冲区**，几乎无消耗。
+3. 使用 DMA 将 **内核缓冲区**的数据写入网卡，不会使用 CPU。
+
+整个过程仅只发生了一次用户态与内核态的切换，数据拷贝了 2 次。所谓的 **零拷贝**，并不是真正无拷贝，而是在不会拷贝重复数据到 jvm 内存中，零拷贝的优点：
+
+* 更少的用户态与内核态的切换。
+* 不利用 CPU 计算，减少 CPU 缓存伪共享。
+* 零拷贝适合小文件传输。
 
 ### Java NIO
 
