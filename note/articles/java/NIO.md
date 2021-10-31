@@ -715,3 +715,197 @@ private static void split(ByteBuffer source) {
 
 - select 在事件发生后，就会将相关的 key 放入 selectedKeys 集合，但不会在处理完后从 selectedKeys 集合中移除，需要我们自己编码删除。
 - cancel 会取消注册在 selector 上的 channel，并从 keys 集合中删除 key 后续不会再监听事件。
+
+### 网络编程
+
+结合了 Selector 的 NIO 主要应用网络编程。
+
+#### 问题
+
+Selector 选择器对象是线程安全的，但它们包含的键集合不是。通过 keys() 和 selectKeys() 返回的键的集合是 Selector 对象内部的私有的 Set 对象集合的直接引用,这些集合可能在任意时间被改变。
+
+多个线程并发地访问一个选择器的键的集合可能出现线程安全问题，一种简单的思路：可以采用同步的方式进行访问，在执行选择操作时，选择器在 Selector 对象上进行同步，然后是已注册的键的集合，最后是已选择的键的集合。
+
+但是在并发量大的时候，使用同一个线程处理连接请求以及消息服务，可能会出现拒绝连接的情况，这是因为当该线程在处理消息服务的时候，可能会无法及时处理连接请求，从而导致超时。
+
+一个更好的策略：对所有的可选择通道使用一个选择器，并将对就绪通道的服务委托给其它线程。只需一个线程监控通道的就绪状态并使用一个协调好的的工作线程池来处理接收及发送数据。
+
+#### 优化
+
+针对上面的问题，我们做出一些优化：`分两组选择器`。
+
+- 单线程配一个选择器，专门处理 accept 事件。
+- 根据 CPU 核心数创建多个线程，每个线程配一个选择器，轮流处理 read 事件。
+
+> Runtime.getRuntime().availableProcessors() 可以拿到 cpu 个数，但是如果工作在 docker 容器下，因为容器不是物理隔离的，会拿到物理 cpu 个数，而不是容器申请时的个数。
+<br>
+这个问题直到 JDK 10 才修复，使用 jvm 参数 UseContainerSupport 配置，默认开启。
+
+##### 实现思路
+
+创建一个负责处理 Accept 事件的 Boss 线程和多个负责处理 Read 事件的 Worker 线程。
+
+Boss 线程执行的操作：
+ 
+- 接受并处理 Accepet 事件，当 Accept 事件发生后，调用 Worker 的 `register(SocketChannel socket)` 方法，让 Worker 去处理 Read 事件，
+  其中需要根据标识 robin 去判断将任务分配给哪个 Worker。
+
+```java
+// 创建固定数量的Worker
+Worker[] workers = new Worker[4];
+// 用于负载均衡的原子整数
+AtomicInteger robin = new AtomicInteger(0);
+// 负载均衡，轮询分配Worker
+workers[robin.getAndIncrement()% workers.length].register(socket);
+```
+
+- `register(SocketChannel socket)` 方法会通过同步队列完成 Boss 线程与 Worker 线程之间的通信，让 SocketChannel 的注册任务被 Worker 线程执行。
+添加任务后需要调用 selector.wakeup() 来唤醒被阻塞的 Selector。
+
+```java
+public void register(final SocketChannel socket) throws IOException {
+    // 只启动一次
+    if (!started) {
+       // 初始化操作
+    }
+    // 向同步队列中添加SocketChannel的注册事件
+    // 在Worker线程中执行注册事件
+    queue.add(new Runnable() {
+        @Override
+        public void run() {
+            try {
+                socket.register(selector, SelectionKey.OP_READ);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    });
+    // 唤醒被阻塞的Selector
+    // select类似LockSupport中的park，wakeup的原理类似LockSupport中的unpark
+    selector.wakeup();
+}
+```
+
+Worker线程执行的操作：从同步队列中获取注册任务，并处理 Read 事件。
+
+##### 实现代码
+
+```java
+public class ThreadsServer {
+    public static void main(String[] args) {
+        try (ServerSocketChannel server = ServerSocketChannel.open()) {
+            // 当前线程为Boss线程
+            Thread.currentThread().setName("Boss");
+            server.bind(new InetSocketAddress(8080));
+            // 负责轮询Accept事件的Selector
+            Selector boss = Selector.open();
+            server.configureBlocking(false);
+            server.register(boss, SelectionKey.OP_ACCEPT);
+            // 创建固定数量的Worker
+            Worker[] workers = new Worker[4];
+            // 用于负载均衡的原子整数
+            AtomicInteger robin = new AtomicInteger(0);
+            for(int i = 0; i < workers.length; i++) {
+                workers[i] = new Worker("worker-"+i);
+            }
+            while (true) {
+                boss.select();
+                Set<SelectionKey> selectionKeys = boss.selectedKeys();
+                Iterator<SelectionKey> iterator = selectionKeys.iterator();
+                while (iterator.hasNext()) {
+                    SelectionKey key = iterator.next();
+                    iterator.remove();
+                    // BossSelector负责Accept事件
+                    if (key.isAcceptable()) {
+                        // 建立连接
+                        SocketChannel socket = server.accept();
+                        System.out.println("connected...");
+                        socket.configureBlocking(false);
+                        // socket注册到Worker的Selector中
+                        System.out.println("before read...");
+                        // 负载均衡，轮询分配Worker
+                        workers[robin.getAndIncrement()% workers.length].register(socket);
+                        System.out.println("after read...");
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    static class Worker implements Runnable {
+        private Thread thread;
+        private volatile Selector selector;
+        private String name;
+        private volatile boolean started = false;
+        /**
+         * 同步队列，用于Boss线程与Worker线程之间的通信
+         */
+        private ConcurrentLinkedQueue<Runnable> queue;
+
+        public Worker(String name) {
+            this.name = name;
+        }
+
+        public void register(final SocketChannel socket) throws IOException {
+            // 只启动一次
+            if (!started) {
+                thread = new Thread(this, name);
+                selector = Selector.open();
+                queue = new ConcurrentLinkedQueue<>();
+                thread.start();
+                started = true;
+            }
+            
+            // 向同步队列中添加SocketChannel的注册事件
+            // 在Worker线程中执行注册事件
+            queue.add(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        socket.register(selector, SelectionKey.OP_READ);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+            // 唤醒被阻塞的Selector
+            // select类似LockSupport中的park，wakeup的原理类似LockSupport中的unpark
+            selector.wakeup();
+        }
+
+        @Override
+        public void run() {
+            while (true) {
+                try {
+                    selector.select();
+                    // 通过同步队列获得任务并运行
+                    Runnable task = queue.poll();
+                    if (task != null) {
+                        // 获得任务，执行注册操作
+                        task.run();
+                    }
+                    Set<SelectionKey> selectionKeys = selector.selectedKeys();
+                    Iterator<SelectionKey> iterator = selectionKeys.iterator();
+                    while(iterator.hasNext()) {
+                        SelectionKey key = iterator.next();
+                        iterator.remove();
+                        // Worker只负责Read事件
+                        if (key.isReadable()) {
+                            // 简化处理，省略细节
+                            SocketChannel socket = (SocketChannel) key.channel();
+                            ByteBuffer buffer = ByteBuffer.allocate(16);
+                            socket.read(buffer);
+                            buffer.flip();
+                            ByteBufferUtil.debugAll(buffer);
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+}
+```
