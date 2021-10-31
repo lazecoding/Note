@@ -1,5 +1,21 @@
 # NIO
 
+- 目录
+  - [Java NIO](#Java-NIO)
+    - [Buffer](#Buffer)
+      - [ByteBuffer](#ByteBuffer)
+      - [ByteBuffer 调试工具类](#ByteBuffer-调试工具类)
+    - [Channel](#Channel)
+      - [图解](#图解)
+      - [Java Channel](#Java-Channel)
+      - [获取 Channel](#获取-Channel)
+  - [Selector](#Selector)
+    - [使用](#使用)
+      - [创建 Selector](#创建-Selector)
+      - [绑定 Channel 事件](#绑定-Channel-事件)
+      - [监听 Channel 事件](#监听-Channel-事件)
+      - [处理监听事件](#处理监听事件)
+
 Java NIO（Non-blocking I/O）是从 JDK 1.4 版本开始引入的一个新的 IO API，可以替代标准的 Java IO API。NIO 使用同步非阻塞的方式重写了老的 I/O 了，
 即使我们不显式地使用 NIO 方式来编写代码，也能带来性能和速度的提高。这种提升不仅仅体现在文件读写（File I/O），同时也体现在网络读写（Network I/O）中。
 
@@ -535,13 +551,167 @@ Channel 类图：
 
 此外还可以通过通道的静态方法 `open()` 来获取 Channel。
 
-#### Selector
+### Selector
 
 Selector 是多路复用器选择器，它允许单线程处理多个 Channel。
 
-使用 Selector，首先得向 Selector 注册  Channel，然后调用它的 select()。该方法会一直阻塞，直到某个注册的 Channel 有事件就绪。一旦这个方法返回，线程就可以处理这些事件，
+使用 Selector，首先得向 Selector 注册 Channel，然后调用它的 select()。该方法会一直阻塞，直到某个注册的 Channel 有事件就绪。一旦这个方法返回，线程就可以处理这些事件，
 事件的例子如建立新连接，数据接收等。
 
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/Selector模型.png" width="600px">
+</div>
 
+单线程可以配合 Selector 完成对多个 Channel 可读写事件的监控，这被称为`多路复用`。
 
+- 多路复用仅针对网络 IO、普通文件 IO 没法利用多路复用。
+- 如果不用 Selector 的非阻塞模式，线程大部分时间都在做无用功，而 Selector 能够保证：
+`有可连接事件时才去连接、有可读事件才去读取、有可写事件才去写入`。
 
+多路复用的优点：
+
+- 一个线程配合 Selector 就可以监控多个 channel 的事件，事件发生线程才去处理，避免非阻塞模式下做的无用功。
+- 让这个线程能够被充分利用。
+- 节约了线程的数量。
+- 减少了线程上下文切换。
+
+#### 使用
+
+##### 创建 Selector
+
+```java
+Selector selector = Selector.open();
+```
+
+##### 绑定 Channel 事件
+
+`绑定 Channel 事件`也称之为注册事件，Selector 只关心绑定的事件。
+每个 Channel 向 Selector 注册时,都将会创建一个 SelectionKey，它将 Channel 与 Selector 建立关系,并维护了 Channel 事件.
+
+```java
+channel.configureBlocking(false);
+SelectionKey key = channel.register(selector, 绑定事件);
+```
+
+注意：
+
+- Channel 必须工作在非阻塞模式。
+- FileChannel 没有非阻塞模式，因此不能配合 Selector 一起使用。
+- 绑定的事件类型可以有：
+  - connect：客户端连接成功时触发。
+  - accept：服务器端成功接受连接时触发。
+  - read：数据可读入时触发，有因为接收能力弱，数据暂不能读入的情况。
+  - write：数据可写出时触发，有因为发送能力弱，数据暂不能写出的情况。
+
+##### 监听 Channel 事件
+
+可以通过下面三种方法来监听是否有事件发生，方法的返回值代表有多少 Channel 发生了事件
+
+方法1，阻塞直到绑定事件发生
+
+```java
+int count = selector.select();
+```
+
+方法2，阻塞直到绑定事件发生，或是超时（时间单位为 ms）
+
+```java
+int count = selector.select(long timeout);
+```
+
+方法3，不会阻塞，也就是不管有没有事件，立刻返回，自己根据返回值检查是否有事件
+
+```java
+int count = selector.selectNow();
+```
+
+##### 处理监听事件
+
+事件发生后，要么处理，要么取消（cancel），不能什么都不做，否则下次该事件仍会触发，这是因为 nio 底层使用的是水平触发。
+
+```java
+public static void main(String[] args) throws IOException {
+    // 1. 创建 selector, 管理多个 channel
+    Selector selector = Selector.open();
+    ServerSocketChannel ssc = ServerSocketChannel.open();
+    ssc.configureBlocking(false);
+    // 2. 建立 selector 和 channel 的联系（注册）
+    // SelectionKey 就是将来事件发生后，通过它可以知道事件和哪个channel的事件
+    SelectionKey sscKey = ssc.register(selector, 0, null);
+    // key 只关注 accept 事件
+    sscKey.interestOps(SelectionKey.OP_ACCEPT);
+    log.debug("sscKey:{}", sscKey);
+    ssc.bind(new InetSocketAddress(8080));
+    while (true) {
+        // 3. select 方法, 没有事件发生，线程阻塞，有事件，线程才会恢复运行
+        // select 在事件未处理时，它不会阻塞, 事件发生后要么处理，要么取消，不能置之不理
+        selector.select();
+        // 4. 处理事件, selectedKeys 内部包含了所有发生的事件
+        Iterator<SelectionKey> iter = selector.selectedKeys().iterator(); // accept, read
+        while (iter.hasNext()) {
+            SelectionKey key = iter.next();
+            // 处理key 时，要从 selectedKeys 集合中删除，否则下次处理就会有问题
+            iter.remove();
+            log.debug("key: {}", key);
+            // 5. 区分事件类型
+            if (key.isAcceptable()) { // 如果是 accept
+                ServerSocketChannel channel = (ServerSocketChannel) key.channel();
+                SocketChannel sc = channel.accept();
+                sc.configureBlocking(false);
+                ByteBuffer buffer = ByteBuffer.allocate(16); // attachment
+                // 将一个 byteBuffer 作为附件关联到 selectionKey 上
+                SelectionKey scKey = sc.register(selector, 0, buffer);
+                scKey.interestOps(SelectionKey.OP_READ);
+                log.debug("{}", sc);
+                log.debug("scKey:{}", scKey);
+            } else if (key.isReadable()) { // 如果是 read
+                try {
+                    SocketChannel channel = (SocketChannel) key.channel(); // 拿到触发事件的channel
+                    // 获取 selectionKey 上关联的附件
+                    ByteBuffer buffer = (ByteBuffer) key.attachment();
+                    int read = channel.read(buffer); // 如果是正常断开，read 的方法的返回值是 -1
+                    if(read == -1) {
+                        key.cancel();
+                    } else {
+                        split(buffer);
+                        // 需要扩容
+                        if (buffer.position() == buffer.limit()) {
+                            ByteBuffer newBuffer = ByteBuffer.allocate(buffer.capacity() * 2);
+                            buffer.flip();
+                            newBuffer.put(buffer);
+                            key.attach(newBuffer);
+                        }
+                    }
+
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    key.cancel();  // 因为客户端断开了,因此需要将 key 取消（从 selector 的 keys 集合中真正删除 key）
+                }
+            }
+        }
+    }
+}
+
+private static void split(ByteBuffer source) {
+    source.flip();
+    for (int i = 0; i < source.limit(); i++) {
+        // 找到一条完整消息
+        if (source.get(i) == '\n') {
+            int length = i + 1 - source.position();
+            // 把这条完整消息存入新的 ByteBuffer
+            ByteBuffer target = ByteBuffer.allocate(length);
+            // 从 source 读，向 target 写
+            for (int j = 0; j < length; j++) {
+                target.put(source.get());
+            }
+            debugAll(target);
+        }
+    }
+    source.compact();
+}
+```
+
+注意：
+
+- select 在事件发生后，就会将相关的 key 放入 selectedKeys 集合，但不会在处理完后从 selectedKeys 集合中移除，需要我们自己编码删除。
+- cancel 会取消注册在 selector 上的 channel，并从 keys 集合中删除 key 后续不会再监听事件。
