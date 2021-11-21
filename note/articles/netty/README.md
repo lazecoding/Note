@@ -8,3 +8,4 @@
 ## 源码阅读
 
 - [启动流程](https://github.com/lazecoding/Note/blob/main/note/articles/netty/启动流程.md)
+- [NioEventLoopGroup 和 NioEventLoop](https://github.com/lazecoding/Note/blob/main/note/articles/netty/NioEventLoopInGroup.md)
