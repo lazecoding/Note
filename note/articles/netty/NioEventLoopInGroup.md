@@ -5,6 +5,9 @@
   - [NioEventLoop](#NioEventLoop)
     - [线程创建的时机](#线程创建的时机)
     - [任务是如何处理的](#任务是如何处理的)
+  - [处理事件](#处理事件)
+    - [accept 事件](#accept-事件)
+    - [read 事件](#read-事件)
 
 在前面的 [Netty 架构模型](https://github.com/lazecoding/Note/blob/main/note/articles/netty/架构模型.md) 中，我们分析了 Netty 的线程处理模型：事件驱动模型。
 
@@ -447,10 +450,10 @@ protected void run() {
             cancelledKeys = 0;
             needsToSelectAgain = false;
             final int ioRatio = this.ioRatio;
-            // ioRatio 是处理 IO 事件用时的比例（分为处理 IO 事件和其他任务）
+            // ioRatio 是处理事件用时的比例（分为事件和其他任务）
             if (ioRatio == 100) {
                 try {
-                    // 处理 IO 事件
+                    // 处理事件
                     processSelectedKeys();
                 } finally {
                     // Ensure we always run tasks.
@@ -460,11 +463,11 @@ protected void run() {
             } else {
                 final long ioStartTime = System.nanoTime();
                 try {
-                    // 处理 IO 事件
+                    // 处理事件
                     processSelectedKeys();
                 } finally {
                     // Ensure we always run tasks.
-                    // ioTime 为处理 IO 事件耗费的时间
+                    // ioTime 为处理事件耗费的时间
                     final long ioTime = System.nanoTime() - ioStartTime;
                     // 计算出处理其他任务的时间
                     // 超过设定的时间后，将会停止任务的执行，会在下一次循环中再继续执行
@@ -489,7 +492,452 @@ protected void run() {
 }
 ```
 
-`NioEventLoop#run` 内部是一个死循环，根据队列中是否有任务来决定是否阻塞，它会循环处理 IO 事件的普通任务。
+`NioEventLoop#run` 内部是一个死循环，根据队列中是否有任务来决定是否阻塞，它会循环处理事件的普通任务。
 
-ioRatio 是处理 IO 事件用时的比例，根据这个参数决定处理 IO 事件和其他任务的时间。
-`processSelectedKeys()` 处理 IO 事件，`runAllTasks()` 处理普通任务和定时任务。
+ioRatio 是处理事件用时的比例，根据这个参数决定处理事件和其他任务的时间。
+`processSelectedKeys()` 处理事件，`runAllTasks()` 处理普通任务和定时任务。
+
+### 处理事件
+
+`processSelectedKeys()` 负责处理事件。
+
+NioEventLoop#processSelectedKey：
+
+```java
+// io/netty/channel/nio/NioEventLoop.java#processSelectedKey
+private void processSelectedKey(SelectionKey k, AbstractNioChannel ch) {
+    final AbstractNioChannel.NioUnsafe unsafe = ch.unsafe();
+    if (!k.isValid()) {
+        final EventLoop eventLoop;
+        try {
+            eventLoop = ch.eventLoop();
+        } catch (Throwable ignored) {
+            return;
+        }
+
+        if (eventLoop != this || eventLoop == null) {
+            return;
+        }
+        // close the channel if the key is not valid anymore
+        unsafe.close(unsafe.voidPromise());
+        return;
+    }
+
+    try {
+        int readyOps = k.readyOps();
+        // 如果是 connect 事件
+        if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
+            // remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking
+            int ops = k.interestOps();
+            ops &= ~SelectionKey.OP_CONNECT;
+            k.interestOps(ops);
+
+            unsafe.finishConnect();
+        }
+
+        // Process OP_WRITE first as we may be able to write some queued buffers and so free memory.
+        // 如果是 write 事件
+        if ((readyOps & SelectionKey.OP_WRITE) != 0) {
+            // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
+            ch.unsafe().forceFlush();
+        }
+
+    
+        // 如果是 read 或者 accept 事件
+        if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
+            // 服务端处理来自客户端的事件走这个分支
+            unsafe.read();
+        }
+    } catch (CancelledKeyException ignored) {
+        unsafe.close(unsafe.voidPromise());
+    }
+}
+```
+
+`NioEventLoop#processSelectedKey` 方法根据 readyOps 判断事件类型，对于服务端它需要关注来自客户端的 read 事件和 accept 事件，即处理事件走的是 `unsafe.read()`。
+
+unsafe 指的是不建议外部使用，是 netty 源码使用的意思，这里 `NioUnsafe#read` 是一个抽象的接口方法，它有两个实现：NioMessageUnsafe 和 NioByteUnsafe。
+
+提前剧透一下：
+
+- NioMessageUnsafe：处理来自客户端的建立连接请求。
+- NioByteUnsafe：读取来自客户端的数据。
+
+下面我们来分析 NioEventLoop 如何处理 accept 事件和 read 事件。
+
+#### accept 事件
+
+处理 accept 事件，走进的方法是 `NioMessageUnsafe#read`。
+
+AbstractNioMessageChannel.java$NioMessageUnsafe#read：
+
+```java
+// /io/netty/channel/nio/AbstractNioMessageChannel.java$NioMessageUnsafe#read
+@Override
+public void read() {
+    assert eventLoop().inEventLoop();
+    final ChannelConfig config = config();
+    final ChannelPipeline pipeline = pipeline();
+    final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+    allocHandle.reset(config);
+
+    boolean closed = false;
+    Throwable exception = null;
+    try {
+        try {
+            do {
+                // doReadMessages 中执行了 accept，获得了 SocketChannel
+                // 并创建 NioSocketChannel 作为消息放入 readBuf
+                // readBuf 是一个 ArrayList 用来缓存消息
+                // private final List<Object> readBuf = new ArrayList<Object>();
+                int localRead = doReadMessages(readBuf);
+                if (localRead == 0) {
+                    break;
+                }
+                if (localRead < 0) {
+                    closed = true;
+                    break;
+                }
+                // localRead值为1，就一条消息，即接收一个客户端连接
+                allocHandle.incMessagesRead(localRead);
+            } while (allocHandle.continueReading());
+        } catch (Throwable t) {
+            exception = t;
+        }
+
+        int size = readBuf.size();
+        for (int i = 0; i < size; i ++) {
+            readPending = false;
+            // 触发 read 事件，让 pipeline 上的 handler 处理 > ServerBootstrapAcceptor.channelRead
+            pipeline.fireChannelRead(readBuf.get(i));
+        }
+        readBuf.clear();
+        allocHandle.readComplete();
+        pipeline.fireChannelReadComplete();
+
+        if (exception != null) {
+            closed = closeOnReadError(exception);
+
+            pipeline.fireExceptionCaught(exception);
+        }
+
+        if (closed) {
+            inputShutdown = true;
+            if (isOpen()) {
+                close(voidPromise());
+            }
+        }
+    } finally {
+        if (!readPending && !config.isAutoRead()) {
+            removeReadOp();
+        }
+    }
+}
+```
+
+`doReadMessages()` 执行 accept 获取 ServerSocketChannel，并创建 NioSocketChannel 作为消息放入 readBuf，readBuf 是一个列表。
+
+NioServerSocketChannel#doReadMessages：
+
+```java
+// io/netty/channel/socket/nio/NioServerSocketChannel.java#doReadMessages
+@Override
+protected int doReadMessages(List<Object> buf) throws Exception {
+    // javaChannel() 是 ServerSocketChannel
+    // 执行 accept 获取 ServerSocketChannel 
+    SocketChannel ch = SocketUtils.accept(javaChannel());
+
+    try {
+        if (ch != null) {
+            // 创建 NioSocketChannel
+            buf.add(new NioSocketChannel(this, ch));
+            return 1;
+        }
+    } catch (Throwable t) {
+        logger.warn("Failed to create a new channel from an accepted socket.", t);
+
+        try {
+            ch.close();
+        } catch (Throwable t2) {
+            logger.warn("Failed to close a socket.", t2);
+        }
+    }
+
+    return 0;
+}
+```
+
+创建完 ServerSocketChannel 之后，`pipeline.fireChannelRead(readBuf.get(i));` 触发 read 事件，由 pipeline 上的 hander 处理事件。
+
+我们回想，服务器启动流程中，initAndRegisterd 阶段的 init 部分，`ServerBootstrap#init` 向 Pipeline 添加 hander。
+
+ServerBootstrap#init：
+
+```java
+// Eio/netty/bootstrap/ServerBootstrap.java#init
+@Override
+void init(Channel channel) throws Exception {
+    // ....
+        
+    // 向 Pipeline 添加 hander
+    p.addLast(new ChannelInitializer<Channel>() {
+        // initChannel 在 register 之后会调用该方法
+        // 添加两个 hander，一个负责配置，一个负责处理 Accepet 事件
+        @Override
+        public void initChannel(final Channel ch) throws Exception {
+            final ChannelPipeline pipeline = ch.pipeline();
+            // 负责配置的 hander
+            ChannelHandler handler = config.handler();
+            if (handler != null) {
+                pipeline.addLast(handler);
+            }
+
+            ch.eventLoop().execute(new Runnable() {
+                @Override
+                public void run() {
+                    // 处理 Accepet 事件的 hander
+                    pipeline.addLast(new ServerBootstrapAcceptor(
+                            ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
+                }
+            });
+        }
+    });
+}
+```
+
+`pipeline.addLast(new ServerBootstrapAcceptor(ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));` 向 Pipeline 注册了 accepet
+事件的处理器（ServerBootstrapAcceptor）。
+
+所以，`pipeline.fireChannelRead(readBuf.get(i));` 触发的 read 事件，在 `ServerBootstrapAcceptor#channelRead` 中完成。
+
+ServerBootstrap$ServerBootstrapAcceptor#channelRead：
+
+```java
+// io/netty/bootstrap/ServerBootstrap.java$ServerBootstrapAcceptor#channelRead
+@Override
+@SuppressWarnings("unchecked")
+public void channelRead(ChannelHandlerContext ctx, Object msg) {
+    // 此时的 msg 是 NioSocketChannel
+    final Channel child = (Channel) msg;
+
+    // 为 NioSocketChannel 添加 childHandler
+    // 这个 NioSocketChannel 是 NioServerSocketChannel#doReadMessages 才创建的，所以要设置
+    child.pipeline().addLast(childHandler);
+
+    // 设置参数
+    setChannelOptions(child, childOptions, logger);
+
+    for (Entry<AttributeKey<?>, Object> e: childAttrs) {
+        child.attr((AttributeKey<Object>) e.getKey()).set(e.getValue());
+    }
+
+    try {
+        // 注册 NioSocketChannel 到 NIO Worker 线程池
+        childGroup.register(child).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) throws Exception {
+                if (!future.isSuccess()) {
+                    forceClose(child, future.cause());
+                }
+            }
+        });
+    } catch (Throwable t) {
+        forceClose(child, t);
+    }
+}
+```
+
+NioSocketChannel 刚刚在 `NioServerSocketChannel#doReadMessages` 中创建出来，所以这里要设置 hander 和 option，然后再注册到 NIO Worker 线程池 中。
+
+通过 `AbstractUnsafe#register` 将 SocketChannel 注册到了 Selector 中，过程与启动流程中的 Register 过程类似。
+
+```java
+// io/netty/channel/AbstractChannel.java$AbstractUnsafe#register
+public final void register(EventLoop eventLoop, final ChannelPromise promise) {
+    
+   // ...
+
+    AbstractChannel.this.eventLoop = eventLoop;
+
+    if (eventLoop.inEventLoop()) {
+        register0(promise);
+    } else {
+        try {
+            // 这行代码完成的是 NIO boss -> NIO worker 线程的切换
+            eventLoop.execute(new Runnable() {
+                @Override
+                public void run() {
+                    // 真正的注册操作
+                    register0(promise);
+                }
+            });
+        } catch (Throwable t) {
+            // ...
+        }
+    }
+}
+```
+
+`register0()` 是真正完成注册的地方。
+
+AbstractChannel#register0：
+
+```java
+// io/netty/channel/AbstractChannel.java#register0
+private void register0(ChannelPromise promise) {
+    try {
+        // check if the channel is still open as it could be closed in the mean time when the register
+        // call was outside of the eventLoop
+        if (!promise.setUncancellable() || !ensureOpen(promise)) {
+            return;
+        }
+        boolean firstRegistration = neverRegistered;
+        // 将 ServerSocketChannel 注册到 Selector 中
+        doRegister();
+        neverRegistered = false;
+        registered = true;
+
+        // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
+        // user may already fire events through the pipeline in the ChannelFutureListener.
+        // 执行初始化器，执行前 pipeline 中只有 head -> 初始化器 -> tail
+        pipeline.invokeHandlerAddedIfNeeded();
+        // 执行后就是 head -> logging handler -> my handler -> tail
+
+        safeSetSuccess(promise);
+        pipeline.fireChannelRegistered();
+        // Only fire a channelActive if the channel has never been registered. This prevents firing
+        // multiple channel actives if the channel is deregistered and re-registered.
+        if (isActive()) {
+            if (firstRegistration) {
+                // 触发 pipeline 的 active 事件
+                pipeline.fireChannelActive();
+            } else if (config().isAutoRead()) {
+                // 让 ServerSocketChannel 关注了 read 事件
+                beginRead();
+            }
+        }
+    } catch (Throwable t) {
+        // Close the channel directly to avoid FD leak.
+        closeForcibly();
+        closeFuture.setClosed();
+        safeSetFailure(promise, t);
+    }
+}
+```
+
+`doRegister()` 将 ServerSocketChannel 注册到 EventLoop 的 Selector 中，`pipeline.invokeHandlerAddedIfNeeded();` 将自定义 hander 织入 pipeline 中。
+
+`isActive()` 判断 channel 状态，如果是 cctive 则进入分支。firstRegistration 表示第一次登记，如果是就触发 pipeline 的 active 事件，
+代码会执行到下面 `DefaultChannelPipeline#channelActive`。
+
+DefaultChannelPipeline#channelActive：
+
+```java
+// io/netty/channel/DefaultChannelPipeline.java#channelActive
+@Override
+public void channelActive(ChannelHandlerContext ctx) throws Exception {
+    ctx.fireChannelActive();
+
+    readIfIsAutoRead();
+}
+```
+
+这里的 `readIfIsAutoRead();` 表示如果通过可读，就会继续执行，最终会走到 `AbstractNioChannel#doBeginRead`。
+
+AbstractNioChannel#doBeginRead:
+
+```java
+// io/netty/channel/nio/AbstractNioChannel.java#doBeginRead
+@Override
+protected void doBeginRead() throws Exception {
+    // Channel.read() or ChannelHandlerContext.read() was called
+    final SelectionKey selectionKey = this.selectionKey;
+    if (!selectionKey.isValid()) {
+        return;
+    }
+
+    readPending = true;
+    
+    // 这时候 interestOps是0
+    final int interestOps = selectionKey.interestOps();
+    if ((interestOps & readInterestOp) == 0) {
+        // 关注 read 事件
+        selectionKey.interestOps(interestOps | readInterestOp);
+    }
+}
+```
+
+最终，ServerSocketChannel 关注了 read 事件。
+
+>NIO 中处理 accept 事件主要有以下六步：
+> - selector.select() 监听事件发生。
+> - 遍历 selectionKeys。
+> - 获取一个 key，判断事件类型是否为 accept。
+> - 创建 SocketChannel，设置为非阻塞。
+> - 将 ServerSocketChannel 注册到 Selector 中。
+> - 关注 selectionKeys 的 read 事件。
+
+#### read 事件
+
+处理 read 事件，走进的方法是 `NioByteUnsafe#read`
+
+AbstractNioByteChannel$NioByteUnsafe#read：
+
+```java
+// io/netty/channel/nio/AbstractNioByteChannel.java$NioByteUnsafe#read
+@Override
+public final void read() {
+    final ChannelConfig config = config();
+    final ChannelPipeline pipeline = pipeline();
+    // 根据配置创建 ByteBufAllocator（池化非池化、直接非直接内存）
+    final ByteBufAllocator allocator = config.getAllocator();
+    // 用来分配 byteBuf，确定单次读取大小
+    final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
+    allocHandle.reset(config);
+
+    ByteBuf byteBuf = null;
+    boolean close = false;
+    try {
+        do {
+            // 创建 ByteBuf
+            byteBuf = allocHandle.allocate(allocator);
+            // 读取内容，放入 ByteBuf 中
+            allocHandle.lastBytesRead(doReadBytes(byteBuf));
+            if (allocHandle.lastBytesRead() <= 0) {
+                // nothing was read. release the buffer.
+                byteBuf.release();
+                byteBuf = null;
+                close = allocHandle.lastBytesRead() < 0;
+                if (close) {
+                    // There is nothing left to read as we received an EOF.
+                    readPending = false;
+                }
+                break;
+            }
+
+            allocHandle.incMessagesRead(1);
+            readPending = false;
+            // 触发 pipeline 上的 read 事件
+            // 由 pipeline 上的 hander 处理
+            pipeline.fireChannelRead(byteBuf);
+            byteBuf = null;
+        } while (allocHandle.continueReading());
+        // 到这里，read 完成了
+        allocHandle.readComplete();
+        // 触发 pipeline 上的 readComplete 事件
+        pipeline.fireChannelReadComplete();
+
+        if (close) {
+            closeOnRead(pipeline);
+        }
+    } catch (Throwable t) {
+        handleReadException(pipeline, byteBuf, t, close, allocHandle);
+    } finally {
+        if (!readPending && !config.isAutoRead()) {
+            removeReadOp();
+        }
+    }
+}
+```
+
+处理 read 事件很简单，就是读取内容，触发 pipeline 上的 read 事件，让 pipeline 上的 hander 处理。
