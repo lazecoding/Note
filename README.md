@@ -49,6 +49,10 @@
 
 - [计算机网络](https://github.com/lazecoding/Note/blob/main/note/articles/network/README.md)
 
+### 系统设计
+
+- [分布式 Id](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/DistributedId.md)
+
 ### 工具
 
 - [WebSocket 客户端](https://github.com/lazecoding/Note/blob/main/note/articles/tool/WebSocket-Client.md)
