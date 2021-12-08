@@ -43,7 +43,7 @@
 ## 中间件
 
 - [Nginx](https://github.com/lazecoding/Note/blob/main/note/articles/nginx/README.md)
-- [RabbitMQ](https://github.com/lazecoding/Note/blob/main/note/articles/rabbitmq/README.md)
+- [消息队列](https://github.com/lazecoding/Note/blob/main/note/articles/mq/README.md)
 
 ### 计算机
 
