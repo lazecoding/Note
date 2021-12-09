@@ -192,3 +192,73 @@ version = version + 1 where version = #{version} and biz_type = XXX
 缺点：
 
 - 强依赖机器时钟，时钟回拨可能会导致 ID 重复。
+
+### 美团（Leaf）
+
+Leaf 由美团开发，Leaf 同时支持号段模式和 Snowflake 算法模式，可以切换使用。
+
+#### Leaf-segment
+
+通过 proxy server 批量获取分布式 ID，每次获取一个 segment 号段，用完之后再去数据库获取新的号段，大大的减轻数据库的压力；
+各个业务不同的发号需求用 biz_tag 字段来区分，每个 biz-tag 的 ID 获取相互隔离，互不影响。如果以后有性能需求需要对数据库扩容，只需要对 biz_tag 分库分表就行。
+
+建表语句如下：
+
+```sql
+
+DROP TABLE IF EXISTS `leaf_alloc`;
+
+CREATE TABLE `leaf_alloc` (
+  `biz_tag` varchar(128)  NOT NULL DEFAULT '' COMMENT '业务key,用来区分业务',
+  `max_id` bigint(20) NOT NULL DEFAULT '1' COMMENT '当前已经分配了的最大id',
+  `step` int(11) NOT NULL COMMENT '初始步长，也是动态调整的最小步长',
+  `description` varchar(256)  DEFAULT NULL COMMENT '业务key的描述',
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '数据库维护的更新时间',
+  PRIMARY KEY (`biz_tag`)
+) ENGINE=InnoDB;
+```
+
+大致架构如下图所示：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-segment架构图.png" width="600px">
+</div>
+
+test_tag 在第一台 Leaf 机器上是 1~1000 的号段，当这个号段用完时，会去加载另一个长度为 step=1000 的号段，假设另外两台号段都没有更新，这个时候第一台机器新加载的号段就应该是 3001~4000。
+同时数据库对应的 biz_tag 这条数据的 max_id 会从 3000 被更新成 4000，更新号段的 SQL 语句如下：
+
+```sql
+Begin
+    UPDATEtableSETmax_id=max_id+step WHEREbiz_tag=xxx
+    SELECTtag, max_id, step FROMtableWHEREbiz_tag=xxx
+Commit
+```
+
+优点：
+
+- 支持线性扩展，性能能够支撑大多数业务场景。
+- ID 是趋势递增的 8byte 的 64 位数字。
+- 容灾性高：即使 DB 宕机，短时间内 Leaf 仍能正常对外提供服务。
+- 自定义 max_id 大小，方便业务以原有 ID 迁移过来。
+
+缺点：
+
+- ID 不够随机，能够泄露发号数量的信息，不太安全。
+- TP999 更新号段，数据库 IO 可能导致用户线程阻塞。
+- DB 宕机会造成整个系统不可用。
+
+##### 双 buffer
+
+针对 TP999 采用双 buffer 的方式，Leaf 服务内部有两个号段缓存区 segment。当前号段已下发 10% 时，如果下一个号段未更新，则另启一个更新线程去更新下一个号段。
+当前号段全部下发完后，如果下个号段准备好了则切换到下个号段为当前 segment 接着下发，循环往复。
+
+主要特性如下：
+
+- 每个 biz-tag 都有消费速度监控，通常推荐 segment 长度设置为服务高峰期发号 QPS 的 600倍（10分钟），这样即使 DB 宕机，Leaf 仍能持续发号 10-20 分钟不受影响。
+- 每次请求来临时都会判断下个号段的状态，从而更新此号段，所以偶尔的网络抖动不会影响下个号段的更新。
+
+具体实现如下图所示：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/架构图.png" width="600px">
+</div>
