@@ -7,6 +7,10 @@
     - [号段模式](#号段模式)
     - [Redis](#Redis)
     - [雪花算法](#雪花算法)
+    - [Leaf](#Leaf)
+      - [Segment](#Segment)
+        - [双 buffer](#双-buffer)
+      - [Snowflake](#Snowflake)
 
 数据库中的每条数据库通常需要唯一 ID 来标识，传统方式采用自增 ID 即可满足要求，但在分布式系统中往往需要对数据进行分库分表，这时候就需要一个全局唯一的 ID 来标识数据，这个全局唯一的 ID 就叫做 `分布式 ID`。
 
@@ -193,11 +197,11 @@ version = version + 1 where version = #{version} and biz_type = XXX
 
 - 强依赖机器时钟，时钟回拨可能会导致 ID 重复。
 
-### 美团（Leaf）
+### Leaf
 
 Leaf 由美团开发，Leaf 同时支持号段模式和 Snowflake 算法模式，可以切换使用。
 
-#### Leaf-segment
+#### Segment
 
 通过 proxy server 批量获取分布式 ID，每次获取一个 segment 号段，用完之后再去数据库获取新的号段，大大的减轻数据库的压力；
 各个业务不同的发号需求用 biz_tag 字段来区分，每个 biz-tag 的 ID 获取相互隔离，互不影响。如果以后有性能需求需要对数据库扩容，只需要对 biz_tag 分库分表就行。
@@ -260,5 +264,79 @@ Commit
 具体实现如下图所示：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/架构图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-segment双buffer示意图.png" width="600px">
 </div>
+
+#### Snowflake
+
+鉴于 Leaf-segment 方案不适用于美团的订单号这种场景（Leaf-segment 方案可以生成趋势递增的 ID，同时 ID 号是可计算的，很容易被猜出美团每日的订单量这种商业秘密），
+所以 Leaf-Snowflake 方案就应运而生了。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-Snowflake示意图.png" width="600px">
+</div>
+
+Leaf-Snowflake 方案完全沿用 Snowflake 方案的 bit 位设计。对于 workerID 的分配，当服务集群数量较小的情况下，完全可以手动配置。Leaf 服务规模较大，动手配置成本太高。
+所以 Leaf-Snowflake 使用 Zookeeper 持久顺序节点的特性自动对 Snowflake 节点配置 wokerID。Leaf-snowflake 是按照下面几个步骤启动的：
+
+- 启动 Leaf-snowflake 服务，连接 Zookeeper，在 leaf_forever 父节点下检查自己是否已经注册过（是否有该顺序子节点）。
+- 如果有注册过直接取回自己的 workerID（zk 顺序节点生成的 int 类型 ID 号），启动服务。
+- 如果没有注册过，就在该父节点下面创建一个持久顺序节点，创建成功后取回顺序号当做自己的 workerID 号，启动服务。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-Snowflake架构图.png" width="600px">
+</div>
+
+##### 弱依赖 ZooKeeper
+
+除了每次会去 ZooKeeper 拿数据以外，也会在本机文件系统上缓存一个 workerID 文件。当 ZooKeeper 出现问题，恰好机器出现问题需要重启时，能保证服务能够正常启动，这样做到对第三方组件的弱依赖。
+
+##### 解决时钟问题
+
+这种方案依赖时间，如果机器的时钟发生了回拨，那么就会有可能生成重复的 ID 号。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-Snowflake启动流程-处理时钟问题.png" width="600px">
+</div>
+
+参见上图整个启动流程图，服务启动时首先检查自己是否写过 ZooKeeper leaf_forever 节点：
+
+- 若写过，则用自身系统时间与 leaf_forever/${self} 节点记录时间做比较，若小于 leaf_forever/${self} 时间则认为机器时间发生了大步长回拨，服务启动失败并报警。
+- 若未写过，证明是新服务节点，直接创建持久节点 leaf_forever/${self} 并写入自身系统时间，接下来综合对比其余 Leaf 节点的系统时间来判断自身系统时间是否准确，
+具体做法是取 leaf_temporary 下的所有临时节点（所有运行中的 Leaf-snowflake 节点）的服务 IP:Port，然后通过 RPC 请求得到所有节点的系统时间，计算 sum(time)/nodeSize。
+- 若 abs( 系统时间-sum(time)/nodeSize ) < 阈值，认为当前系统时间准确，正常启动服务，同时写临时节点 leaf_temporary/${self} 维持租约。
+- 否则认为本机系统时间发生大步长偏移，启动失败并报警。
+- 每隔一段时间（3s）上报自身系统时间写入 leaf_forever/${self}。
+
+由于强依赖时钟，对时间的要求比较敏感，在机器工作时 NTP 同步也会造成秒级别的回退，建议可以直接关闭 NTP 同步。要么在时钟回拨的时候直接不提供服务直接返回 ERROR_CODE，等时钟追上即可。
+或者做一层重试，然后上报报警系统，更或者是发现有时钟回拨之后自动摘除本身节点并报警，如下：
+
+```java
+//发生了回拨，此刻时间小于上次发号时间
+if (timestamp < lastTimestamp) {
+    long offset = lastTimestamp - timestamp;
+    if (offset <= 5) {
+        try {
+          //时间偏差大小小于5ms，则等待两倍时间
+            wait(offset << 1);//wait
+            timestamp = timeGen();
+            if (timestamp < lastTimestamp) {
+               //还是小于，抛异常并上报
+                throwClockBackwardsEx(timestamp);
+              }    
+        } catch (InterruptedException e) {  
+           throw  e;
+        }
+    } else {
+        //throw
+        throwClockBackwardsEx(timestamp);
+    }
+}
+//分配ID
+```
+
+
+
+
+
+
