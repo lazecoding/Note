@@ -11,6 +11,7 @@
       - [Segment](#Segment)
         - [双 buffer](#双-buffer)
       - [Snowflake](#Snowflake)
+    - [TinyID](#TinyID)
 
 数据库中的每条数据库通常需要唯一 ID 来标识，传统方式采用自增 ID 即可满足要求，但在分布式系统中往往需要对数据进行分库分表，这时候就需要一个全局唯一的 ID 来标识数据，这个全局唯一的 ID 就叫做 `分布式 ID`。
 
@@ -335,8 +336,12 @@ if (timestamp < lastTimestamp) {
 //分配ID
 ```
 
+### TinyID
 
+Tinyid 是用 Java 开发的一款分布式 ID 生成系统，基于数据库号段模式实现，关于这个算法与美团 Leaf-segment 如出一辙。Tinyid 提供了 java-client(sdk) 使 id 生成本地化，获得了更好的性能与可用性。
 
+TinyID 的特性：
 
-
+- http 方式访问，性能取决于 http server 的能力，网络传输速度。
+- java-client 方式访问，本地生成，号段长度(step)越长，QPS 越大。
 
