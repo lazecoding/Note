@@ -12,6 +12,9 @@
         - [双 buffer](#双-buffer)
       - [Snowflake](#Snowflake)
     - [TinyID](#TinyID)
+    - [Uidgenerator](#Uidgenerator)
+      - [DefaultUidGenerator](#DefaultUidGenerator)
+      - [CachedUidGenerator](#CachedUidGenerator)
 
 数据库中的每条数据库通常需要唯一 ID 来标识，传统方式采用自增 ID 即可满足要求，但在分布式系统中往往需要对数据进行分库分表，这时候就需要一个全局唯一的 ID 来标识数据，这个全局唯一的 ID 就叫做 `分布式 ID`。
 
@@ -345,3 +348,100 @@ TinyID 的特性：
 - http 方式访问，性能取决于 http server 的能力，网络传输速度。
 - java-client 方式访问，本地生成，号段长度(step)越长，QPS 越大。
 
+### Uidgenerator
+
+uid-generator 是百度技术部基于 Snowflake 算法开发的，与原始的 Snowflake 算法不同在于，uid-generator 支持自定义时间戳、工作机器 ID和序列号等各部分的位数。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/uid-generator-id示意图.png" width="600px">
+</div>
+
+由上图可知，uid-generator 的时间部分长度只有 28 位，这就意味着 uid-generator 默认只能承受 8.5 年（2^28-1/86400/365）。
+当然可以根据业务的需求，uid-generator 可以适当调整 delta seconds、worker node id 和 sequence 占用位数。
+
+接下来分析百度 uid-generator 的实现，它有两种方式：DefaultUidGenerator 和 CachedUidGenerator。
+
+#### DefaultUidGenerator
+
+- delta seconds
+
+这个值是指当前时间与 epoch 时间的时间差，且单位为秒。epoch 时间就是指集成 uid-generator 生成分布式 ID 服务第一次上线的时间，可配置。
+
+- worker id
+
+搭建 uid-generator 的话，需要创建一个表：
+
+```sql
+DROP TABLE IF EXISTS WORKER_NODE;
+
+CREATE TABLE WORKER_NODE(
+  ID BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY ,
+  HOST_NAME VARCHAR(64) NOT NULL COMMENT 'host name',
+  PORT VARCHAR(64) NOT NULL COMMENT 'port',
+  TYPE INT NOT NULL COMMENT 'node type: ACTUAL or CONTAINER',
+  LAUNCH_DATE DATE NOT NULL COMMENT 'launch date',
+  MODIFIED DATETIME NOT NULL COMMENT 'modified time',
+  CREATED DATEIMTE NOT NULL COMMENT 'created time'
+)COMMENT='DB WorkerID Assigner for UID Generator',ENGINE = INNODB;
+```
+
+uid-generator 会在实例启动时，往 WORKER_NODE 表中插入一行数据，得到的 id 值就是 workerId 的值。由于 workerId 默认 22 位，
+限制集成 uid-generator 生成分布式 ID 的所有实例重启次数不允许超过 4194303 次（即 2^22-1）。
+
+- sequence
+
+sequence 是 DefaultUidGenerator 的核心，它对时钟回拨的处理比较简单粗暴，具体实现如下：
+
+```java
+// synchronized保证线程安全
+protected synchronized long nextId() {
+    long currentSecond = getCurrentSecond();
+    if (currentSecond < lastSecond) {
+        long refusedSeconds = lastSecond - currentSecond;
+        // 如果时间有任何的回拨，那么直接抛出异常
+        throw new UidGenerateException
+          ("Clock moved backwards. Refusing for %d seconds",refusedSeconds);
+    }
+    // 如果当前时间和上一次是同一秒时间，那么sequence自增
+    if (currentSecond == lastSecond) {
+        sequence = (sequence + 1) & bitsAllocator.getMaxSequence();
+        // 如果同一秒内自增值超过2^13-1，那么就会自旋等待下一秒
+        if (sequence == 0) {
+            currentSecond = getNextSecond(lastSecond);
+        }
+    } else {
+        // 如果是新的一秒，那么sequence重新从0开始
+        sequence = 0L;
+    }
+    lastSecond = currentSecond;
+    return bitsAllocator
+      .allocate(currentSecond - epochSeconds, workerId, sequence);
+}
+```
+
+#### CachedUidGenerator
+
+CachedUidGenerator 是 uid-generator 的重要改进实现。它的核心利用了 RingBuffer，如下图所示，它本质上是一个数组，数组中每个项被称为 slot。uid-generator 设计了两个 RingBuffer，
+一个保存唯一 ID，一个保存 flag。RingBuffer 的尺寸是 2^n，n 必须是正整数：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/uid-generator-RingBuffer.png" width="600px">
+</div>
+
+- RingBuffer Of UID
+
+保存唯一 ID 的 RingBuffer，它有两个指针，Tail 指针和 Cursor 指针。Tail 指针表示最后一个生成的唯一 ID。如果这个指针追上了 Cursor 指针，意味着 RingBuffer 已经满了。
+这时候，不允许再继续生成 ID 了。Cursor 指针表示最后一个已经给消费的唯一 ID。如果 Cursor 指针追上了 Tail 指针，意味着 RingBuffer 已经空了。这时候，不允许再继续获取 ID 了。
+
+- RingBuffer Of Flag
+
+这个 RingBuffer 的每个 slot 的值都是 0 或者 1，0 是 CAN_PUT_FLAG 的标志位，1 是 CAN_TAKE_FLAG 的标识位。每个 slot 的状态要么是 CAN_PUT，要么是 CAN_TAKE。
+以某个 slot 的值为例，初始值为 0，即 CAN_PUT。接下来会初始化填满这个 RingBuffer，这时候这个 slot 的值就是 1，即 CAN_TAKE。等获取分布式 ID 时取到这个 slot 的值后，
+这个 slot 的值又变为 0，以此类推。
+
+
+CachedUidGenerator 在初始化 RingBuffer，会根据 boostPower 的值确定 RingBuffer 的 size。RingBuffer 参数 paddingFactor 默认值是 50，
+意指当 RingBuffer 中剩余可用 ID 数量少于 50% 的时候，将启动一个异步线程往 RingBuffer 中填充新的唯一 ID，直到填满为止。
+
+在满足填充新的唯一 ID 条件时，CachedUidGenerator 通过`时间值递增`得到新的时间值，而不是 `System.currentTimeMillis()` 这种通过系统时钟的方式获取，从而脱离了对服务器时间的依赖，
+也就不会有时钟回拨的问题。而 lastSecond 是 AtomicLong 类型，所以线程也是安全的。
