@@ -52,7 +52,8 @@
 ### 系统设计
 
 - [分布式 Id](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/DistributedId.md)
-  - [幂等](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/Idempotent.md)
+- [幂等](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/Idempotent.md)
+- [流量削峰](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/流量削峰.md)
 
 ### 工具
 
