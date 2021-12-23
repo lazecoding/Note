@@ -55,6 +55,7 @@
 - [幂等](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/Idempotent.md)
 - [流量削峰](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/流量削峰.md)
 - [限流](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/限流.md)
+- [服务熔断和降级](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/服务熔断和降级.md)
 
 ### 工具
 
