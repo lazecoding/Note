@@ -57,10 +57,17 @@
 - [限流](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/限流.md)
 - [服务熔断和降级](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/服务熔断和降级.md)
 - [分库分表](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/分库分表.md)
+<!--
+- [分布式存储系统](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/分布式存储系统.md)
+-->
 
 ### 工具
 
 - [WebSocket 客户端](https://github.com/lazecoding/Note/blob/main/note/articles/tool/WebSocket-Client.md)
+
+### 测试
+
+- [Jmeter](https://github.com/lazecoding/Note/blob/main/note/articles/test/Jmeter.md)
 
 ## 读物
 
