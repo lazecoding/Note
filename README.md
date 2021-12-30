@@ -68,6 +68,7 @@
 ### 测试
 
 - [Jmeter](https://github.com/lazecoding/Note/blob/main/note/articles/test/Jmeter.md)
+- [Jmeter 压测 —— WebSocket](https://github.com/lazecoding/Note/blob/main/note/articles/test/Jmeter-WS.md)
 
 ## 读物
 
