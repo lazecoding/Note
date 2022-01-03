@@ -29,10 +29,6 @@ Socket 又称套接字。
 Socket 并不是一种协议，而是为方便直接使用更底层协议而存在的一个抽象层。Socket 和 TCP/IP 协议也没有必然联系，只是用 TCP/IP 协议栈更方便而已。所以 Socket 是对 TCP/IP 协议的封装，
 它是一组接口，把复杂的 TCP/IP 协议族隐藏在 Socket 接口后面。
 
-<div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/network/SOCKET-TCP通信流程.png" width="600px">
-</div>
-
 以 UDP 和 TCP 为例，这两种协议的套接字也是有区别的：
 
 - 一个 UDP 套接字是由一个二元组标识的，该二元组包含一个目的 IP 地址和一个目的端口号。因此，如果两个 UDP 报文段有不同的源 IP 地址或源端口号，但具有相同的目的 IP 地址和目的端口号，
