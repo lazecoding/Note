@@ -7,7 +7,11 @@
       - [序列化](#序列化)
       - [分区器](#分区器)
       - [拦截器](#拦截器)
-  
+    - [原理分析](#原理分析)
+      - [整体架构](#整体架构)
+      - [元数据更新](#元数据更新)
+      - [生产者参数](#生产者参数)
+ 
 从编程的角度而言，生产者就是负责向 Kafka 发送消息的应用程序。在 Kafka 的历史变迁中，一共有两个大版本的生产者客户端：第一个是于 Kafka 开源之初使用 Scala 语言编写的客户端，我们可以称之为旧生产者客户端（Old Producer）或 Scala 版生产者客户端；第二个是从 Kafka 0.9x 版本开始推出的使用 Java 语言编写的客户端，我们可以称之为新生产者客户端（New Producer）或 Java 版生产者客户端，它弥补了旧版客户端中存在的诸多设计缺陷。
 
 ### 生产流程
@@ -207,3 +211,127 @@ void close();
 ```
 
 KafkaProducer 在将消息序列化和计算分区之前会调用生产者拦截器的 onSend() 方法来对消息进行相应的定制化操作。
+
+### 原理分析
+
+#### 整体架构
+
+消息在真正发往 Kafka 之前，有可能需要经历拦截器（Interceptor）、序列化器（Serializer）和分区器（Partitioner）等一系列的作用，下图是生产者客户端的整体架构：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/生产者客户端的整体架构.png" width="600px">
+</div>
+
+整个生产者客户端由两个线程协调运行，这两个线程分别为主线程和 Sender 线程（发送线程）。在主线程中由 KafkaProducer 创建线程，
+然后通过可能的拦截器、序列化器和分区器的作用之后缓存到消息累加器（RecordAccumulator，也称为消息收集器）中。Sender线程负责从 RecordAccumulator 中获取消息并将其发送到 Kafka 中。
+
+RecordAccumulator 主要用来缓存消息以便 Sender 线程可以批量发送，进而减少网络传输的资源消耗以提升性能。RecordAccumulator 缓存的大小通过生产者客户端参数 `buffer.memory` 配置，
+默认值为 33554432B，即 32MB。如果生产者发送消息的速度超过发送到服务器的速度，则会导致生产者空间不足，这个时候 KafkaProducer 的 send() 方法调用要么被阻塞，
+要么抛出异常，这个取决于参数 `max.block.ms` 的配置，此参数的默认值为 60000，即 60 秒。
+
+主线程中发送过来的消息都会被追加到 RecordAccumulator 的某个双端队列（Deque）中，在 RecordAccumulator 的内部为每个分区都维护了一个双端队列，
+队列中的内容就是 ProducerBatch，即 Depue<ProducerBatch>。消息写入缓存时，追加到双端队列的尾部；Sender 读取消息时，从双端队列的头部读取。
+注意 ProducerBatch 不是 ProducerRecord，ProducerBatch 中可以包含一至多个 ProducerRecord。通俗地说，ProducerRecord 是生产者中创建的消息，而 ProducerBatch 是一个消息批次，
+ProducerRecord 会被包含在 ProducerBatch 中，这样可以使字节的使用更加紧凑。与此同时，将较小的 ProducerRecord 拼凑成一个较大的 ProducerBatch，也可以减少网络请求的慈湖以提升整体的吞吐量。
+ProducerBatch 和消息的具体格式有关。如果生产者客户端需要向很多分区发送消息，则可以将 `buffer.memory` 参数适当调大以增加整体的吞吐量。
+
+RecordAccumulator 的内部还有一个 BufferPool，它用来复用 ByteBuffer，以保证缓存的高效利用。不过 BufferPool 只针对特定大小的 ByteBuffer 进行管理，
+而其他大小的 ByteBuffer 不会缓存进 BufferPool 中，这个特定的大小由 `batch.size` 参数来指定，默认值为 16384B，即 16KB。我们可以适当地调大 `batch.size` 参数以便多缓存一些消息。
+
+Sender 从 RecordAccumulator 中获取缓存的消息之后，会进一步将原本<分区, Deque< ProducerBatch>> 的保存形式转变成 <Node, List< ProducerBatch> 的形式，
+其中 Node 表示 Kafka 集群的 broker 节点。对于网络连接来说，生产者客户端是与具体的 broker 节点建立的连接，也就是向具体的 broker 节点发送消息，而并不关心消息属于哪一个分区；
+而对于 KafkaProducer 的应用逻辑而言，我们只关注向哪个分区中发送哪些消息，所以在这里需要做一个应用逻辑层面到网络 I/O 层面的转换。
+
+请求在从 Sender 线程发往 Kafka 之前还会保存到 InFlightRequests 中，保存对象的具体形式为 Map<NodeId, Deque>，
+它的主要作用是缓存了已经发出去但还没有收到响应的请求（NodeId 是一个 String 类型，表示节点的 id 编号）。与此同时，InFlightRequests 还提供了许多管理类的方法，
+并且通过配置参数还可以限制每个连接（也就是客户端与 Node 之间的连接）最多缓存的请求数。这个配置参数为 `max.in.flight.requests.per.connection`，默认值为 5，
+即每个连接最多只能缓存 5 个未响应的请求，超过该数值之后就不能再向这个连接发送更多的请求了，除非有缓存的请求收到了响应（Response）。
+通过比较 Deque<Request> 的 size 与这个参数的大小来判断对应的Node中是否已经堆积了很多未响应的消息，如果真是如此，那么说明这个 Node 节点负载较大或网络连接有问题，
+再继续向其发送请求会增加请求超时的可能。
+
+InFlightRequests 还可以获得 leastLoadedNode，即所有 Node 中负载最小的那一个。这里的负载最小是通过每个 Node 在 InFlightRequests 中还未确认的请求决定的，未确认的请求越多则认为负载越大。
+
+#### 元数据更新
+
+使用如下方式创建一条消息 ProducerRecord：
+
+```java
+ProducerRecord<String, String> record = new ProducerRecord<>(topic, "hello,Kakfa!");
+```
+
+这里只有主题的名称，对于其他一些必要的信息都没有。KafkaProducer 要将此信息追加到指定主题的某个分区所对应的 leader 副本之前，首先需要知道主题的分区数量，然后经过计算得出（或者直接指定）目标分区，之后 KafkaProducer 要将次信息追加到指定主题的某个分区所对应的 leader 副本之前，首先需要知道主题的分区数量，然后经过计算得出（或者直接指出）目标分区，之后 KafkaProducer 需要知道目标分区的 leader 副本所在的 broker 节点的地址、端口等信息才能建立连接，最终才能将消息发送到 Kafka，在这一过程中所需要的信息都属于元数据信息。
+
+元数据是指 Kafka 集群的元数据，这些元数据具体记录了集群中有哪些主题，这些主题有哪些分区，每个分区的 leader 副本分配在哪个节点上，follower 副本分配在哪些节点上，哪些副本在 AR、ISR 等集合中，集群中有哪些节点，控制器节点又是哪一个等信息。
+
+当客户端中没有需要使用的元数据信息时，比如没有指定的主题信息，或者超过 `metadata.max.age.ms` 时间没有更新元数据都会引起元数据的更新操作。客户端参数 `metadata.max.age.ms` 的默认值为 3000000，即 5 分钟。元数据的更新操作是在客户端内部进行的，对客户端的外部使用者是不可见。当需要更新元数据时，会先挑选出 leastLoadedNode，然后向这个 Node 发送 MetadataRequest 请求来获取具体的元数据信息。这个更新操作是由 Sender 线程发起的，在创建完 MetadataRequest 之后同样会存入 InFlightRequests，周的步骤和发送消息时类似。元数据虽然由 Sender 线程负责更新，但是主线程也需要读取这些信息，这里的数据同步通过 synchronized 和 final 关键字来保障。
+
+#### 生产者参数
+
+在 KafkaProducer 中，大部分的参数都有合理的默认值，一般不需要修改它们。不过了解这些参数可以更合理地使用生产者客户端，其中还有一些重要的参数涉及程序的可用性和性能，如果能够熟练掌握它们，也可以让我们在编写相关的程序时能够更好地进行性能调优与故障排除。
+
+##### acks
+
+这个参数用来指定分区中必须要有多少个副本收到这条消息，之后生产者才会认为这条消息是成功写入的。acks 是生产者客户端中的一个非常重要的参数，它涉及消息的可靠性和吞吐量之间的权衡。acks 参数有三种类型的值（都是字符串类型）。
+
+- `acks = 1`。默认值即为 1。生产者发送消息之后，只要分区的 leader 副本成功写入消息，那么它就会收到来自服务端的成功响应。如果消息无法写入 leader 副本，比如在 leader 副本崩溃、重新选举新的 leader 副本的过程中，那么生产者就会收到一个错误的响应，为了避免消息丢失，生产者可以选择重发消息。如果消息写入 leader 副本并返回成功响应给生产者，且在被其他 follower 副本拉取之前 leader 副本崩溃，那么此时消息还是会丢失，因为新选举的 leader 副本中并没有这条对应的消息。`acks` 设置为 1，是消息可靠性和吞吐量之间的折中方案。
+- `acks = 0`。生产者发送消息之后不需要等待任何服务器端的响应。如果在消息从发送到写入 Kafka 的过程中出现了某些异常，导致 Kafka 并没有收到这条消息，那么生产者也无从得知，消息也就丢失了。在其他配置环境相同的情况下，`acks` 设置为 0 可以达到最大的吞吐量。
+- `acks = -1 或 acks = all`。生产者在消息发送之后，需要等待ISR中的所有副本都成功写入消息之后才能够收到来自服务端的成功响应。在其他配置环境相同的情况下，`acks` 设置为 -1（all）可以达到最强的可靠性。但这并不意味着消息就一定可靠，因为 ISR 中可能只有 leader 副本，这样就退化成了 `acks = 1` 的情况。要获得更高的消息可靠性需要配合 `min.insync.replicas` 等参数的联动。
+
+##### max.request.size
+
+这个用来限制生产者客户端能发送的消息的最大值，默认值为 1048576B，即 1MB。一般情况下，这个默认值就可以满足大多数的应用场景了。这里不建议盲目的增大这个参数的配置值，尤其是在对 Kafka 整体脉络没有没有足够把控的时候。因为这个参数还涉及一些其他参数的联动。比如 broker 端的 `message.max.bytes` 参数配置为 10，而 `max.request.size` 参数配置为 20，那么当我们发送一条大小为 15B 的消息时，生产者客户端就会报出如下的异常：
+
+```C
+org.apache.kafka.commom.errors.RecordTooLargeException: The request included a message larger than the max message size the server will accept.
+```
+
+##### retries 和 retry.backoff.ms
+
+`retries` 参数用来配置生产者重试的次数，默认值为 0，即在发生异常的时候不进行任何重试动作。消息在从生产者发出到成功写入服务器之前可能发生一些临时性的异常，比如网络抖动、leader 副本的选举等，这种异常往往是可以自行恢复的，生产者可以通过配置 `retries` 大于 0 的值，以此通过内部重试来恢复而不是一味地将异常抛给生产者的应用程序。如果重试次数达到设定的次数，那么生产者就会放弃重试并返回异常。不过并不是所有的异常都是可以通过重试来解决的，比如消息太大，超过 `max.request.size` 参数配置的值时，这种方式就不可行了。
+
+重试还和另一个参数 `retry.backoff.ms` 有关，这个参数的默认值为 100，他用来设定两次重试之间的时间间隔，避免无效的频繁重试。在配置 `retries` 和 `retry.backoff.ms` 之前，最好先估算一下可能的异常恢复时间，这样可以设定总的重试时间大于这个异常恢复时间，以此来避免生产者过早地放弃重试。
+
+Kafka 可以保证同一个分区中的消息是有序的。如果生产者按照一定的顺序发送消息，那么这些消息也会顺序地写入分区，进而消费者也可以按照同样的顺序消费它们。对于某些应用来说，顺序性非常重要，比如 MySQL 的 binlog 传输，如果出现错误就会造成非常严重的后果。如果将 `acks` 参数配置为非零值，并且 `max.in.flight.requests.per.connection` 参数配置为大于 1 的值，那么就会出现错序的现象：如果第一批次消息写入失败，而第二批次消息写入成功，那么生产者就会重试发送第一批次的消息，此时如果第一批次的消息写入成功，那么这两个批次的消息就出现了错序。一般而言，在需要保证消息顺序的场合建议把参数 `max.in.flight.requests.per.connection` 配置为 1，而不是把 `acks` 配置为 0，不过这样也会影响整体的吞吐。
+
+##### compression.type
+
+这个参数用来指定消息的压缩方式，默认值为 "none"，即默认情况下，消息不会被压缩。该参数还可以配置 "gzip"、"snappy" 和 "lz4"。对消息进行压缩可以极大地减少网络传输量、降低网络 I/O，从而提高整体的性能。消息压缩是一种使用时间换空间的优化方式，如果对时延有一定的要求，则不推荐对消息进行压缩。
+
+##### connections.max.idle.ms
+
+这个参数用来指定在多久之后关闭限制的连接，默认值为 540000（ms），即 9 分钟。
+
+##### linger.mx
+
+这个参数用来指定生产者发送 producerBatch 之前等待更多消息（ProducerRecord）加入 ProducerBatch 的时间，默认值为 0.生产者客户端会在 ProducerBatch 被填满或等待时间超过 `linger.ms` 值时发送出去。增大这个参数的值会增加消息的延迟，但是同时能提升一定的吞吐量。这个 `linger.ms` 参数与 TCP 协议中的 Nagle 算法有异曲同工之妙。
+
+##### receive.buffer.bytes
+
+这个参数用来设置 Socket 接收消息缓冲区（SO_RECBUF）的大小，默认值为 32768(B)，即 32KB。如果设置为 -1，则使用操作系统的默认值。如果 Producer 和 Kafka 处于不同的机房，则可以适当调大这个参数值。
+
+##### send.buffer.bytes
+
+这个参数用来设置 Socket 发送消息发送消息缓冲区（SO_SNDBUF）的大小，默认值为 131072(B)，即 128KB。与 `receive.buffer.bytes` 参数一样，如果设置为 -1，则使用操作系统的默认值。
+
+##### request.timeout.ms
+
+这个参数用来配置 Producer 等待请求响应的最长时间，默认值为 30000（ms）。请求超时之后可以选择进行重试。注意这个参数需要比 broker 端参数 `replica.lag.time.max.ms` 的值要大，这样可以减少因客户端重试而引起的消息重复的概率。
+
+##### 更多参数
+
+| 参数名称               | 默认值   | 释义                                         |
+| -------------------  | ------- | ------------------------------------------ |
+| bootstrap.servers    | ""      | 指定连接 Kafka 集群所需的 broker 地址清单。                                                      |
+| key.serializer       | ""      |消息中 key 对应的序列化类，需要实现 org.apache.kafka.common.serialization.Serializer 接口。         |
+| value.serializer     | ""      | 消息中 value 对应的序列化类，需要实现 org.apache.kafka.common.serialization.Serializer 接口。      |
+| buffer.memory        | 33554432(32MB)   | 生产者客户端中用于缓存消息的缓冲区大小。                                                   |
+| batch.size           | 16384(16KB)      | 用于指定 ProducerBatch 可以复用内存区域的大小。                                           |
+| client.id            | ""      | 用来设定 KafkaProducer 对应的客户端 id。                                                         |
+| max.block.ms         | 60000   | 用来控制 KafkaProducer 中 send() 方法和 partitionsFor() 方法的阻塞时间。当生产者的发送缓冲区已满，或者没有可用的元数据时，这些方法就会阻塞。            |
+| partitioner.class    | org.apache.kafka.clients.producer.internals.DefaultPartitioner  | 用来指定分区器，需要实现 org.apache.kakfa.clients.producer.Partitioner 接口。     |
+| enable.idempotence   | false   | 是否开启幂等性功能                                                                              |
+| interceptor.class    | ""      | 用来设定生产者拦截器，需要实现 org.apache.kafka.clients.producer.ProducerInterceptor 接口。         |
+| max.in.flight.requests.per.connection    | 5  | 限制每个连接（也就是客户端与Node之间的链接）最多缓存的请求数。                           |
+| metadata.max.age.ms  | 300000(5分钟)      | 如果在这个时间内元数据没有更新的话会被强制更新。                                            |
+| transactional.id     | null     |  设置事务 id，必须唯一。 |
+		
