@@ -1,0 +1,386 @@
+# 消费者
+
+- 目录
+    - [消费者和消费组](#消费者和消费组)
+    - [消费流程](#消费流程)
+      - [订阅主题与分区](#订阅主题与分区)
+      - [反序列化](#反序列化)
+      - [消息消费](#消息消费)
+      - [位移消费](#位移消费)
+      - [控制或关闭消费](#控制或关闭消费)
+      - [指定位移消费](#指定位移消费)
+      - [消费者拦截器](#消费者拦截器)
+      - [再均衡](#再均衡)
+
+与生产者对应的是消费者，应用程序可以通过 KafkaConsumer 来订阅主题，并从订阅的主题中拉取消息。
+
+### 消费者和消费组
+
+消费者（Consumer）负责订阅 Kafka 中的主题（Topic），并且从订阅的主题上拉取消息。与其他一些消息中间件不同的是：在 Kafka的 消费理念中还有一层消费组（Consumer Group）的概念，
+每个消费者都有一个对应的消费组。当消息发布到主题后，只会被订阅它的每个消费组中的一个消费者所消费。
+
+当一个主题被某个消费组中的多个消费者订阅，该主题中的分区只会被其中一个消费者绑定消费。当新增、减少消费者，主题会进入 `再均衡` 状态，分区与消费者的绑定会 `再分配`，整个过程消息是无法被消费的。
+
+> 消费者与消费组这种模型可以让整体的消费能力具备横向伸缩性，我们可以增加（或减少）消费者的个数来提高（或降低）整体的消费能力。对于分区数固定的情况，一味地增加消费者并不会让消费能力一直得到提升，
+> 如果消费者过多，出现了消费者的个数大于分区个数的情况，就会有消费者分配不到任何分区。
+
+对于消息中间件而言，一般有两种模式：`点对点模式` 和 `发布订阅模式`。
+
+- 点对点模式是基于队列的，消息生产者发送消息到队列，消息消费者从队列中接收消息。
+- 发布订阅模式定义了如何向一个内容节点发布和订阅消息，这个内容节点称为主题（Topic），主题可以认为是消息传递的中介，消息发布者将消息发布到某个主题，而消息订阅者从主题中订阅消息。
+主题使得消息的订阅者和发布者互相保持独立，不需要进行接触即可保证消息的传递，发布/订阅模式在消息的一对多广播时采用。
+
+Kafka 同时支持两种模式，而这正是得益于消费者与消费组模型的契合：
+
+- 如果所有的消费者都隶属于同一个消费组，那么所有的消息都会被均衡地投递给每一个消费者，即每条消息只会被一个消费者处理，这就相当于点对点模式的应用。
+- 如果所有的消费者都隶属于不同的消费组，那么所有的消息都会被广播给所有的消费者，即每条消息会被所有的消费者处理，这就相当于发布/订阅模式的应用。
+
+消费组是一个逻辑上的概念，它将旗下的消费者归为一类，每一个消费者只隶属于一个消费组。每一个消费组都会有一个固定的名称，消费者在进行消费前需要指定其所属消费组的名称，
+这个可以通过消费者客户端参数 `group.id` 来配置，默认值为空字符串。消费者并非逻辑上的概念，它是实际的应用实例，它可以是一个线程，也可以是一个进程。同一个消费组内的消费者既可以部署在同一台机器上，
+也可以部署在不同的机器上。
+
+### 消费流程
+
+一个完整的消费流程需要具备以下几个步骤：
+
+- 配置消费者客户端参数及创建响应的客户端实例。
+- 订阅主题。
+- 拉取消息并消费。
+- 提交消费位移。
+- 关闭消费者实例。
+
+消费者客户端示例代码：
+
+```java
+public class Consumer {
+    public static final String brokerList = "192.168.0.138:9092";
+    public static final String topic = "topic-demo";
+    public static final String group = "group-id";
+    public static final String client = "client-id";
+
+    public  static final AtomicBoolean isRunning = new AtomicBoolean(true);
+
+    public static Properties initConfig(){
+
+        Properties properties = new Properties();
+        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,brokerList);
+        properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG,group);
+        properties.put(ConsumerConfig.CLIENT_ID_CONFIG,client);
+        return  properties;
+    }
+    public static void main(String[] args) {
+
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<String, String>(initConfig());
+        consumer.subscribe(Collections.singletonList(topic));
+        try {
+            while (isRunning.get()) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
+                records.forEach(record->{
+                    System.out.println("topic="+record.topic()+",  partition="+record.partition()+",  offset="+record.offset());
+                    System.out.println("key="+record.key()+", value="+record.value());
+                });
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            consumer.close();
+        }
+    }
+}
+```
+
+- `bootstrap.servers`：指定 Kafka 集群地址，可以设置一个或多个，用逗号隔开。注意这里不需要设置集群中全部的 broker地址，消费者会从现有的配置中查找全部的集群成员。
+- `key.deserializer` 和 `value.deserializer`：与生产者客户端参数相对应。消费者从 Kafka获取到的消息格式都是字节数组(byte[])，所以需要执行相应的反序列化操作才能还原成原有的对象格式。
+- `client.id`：客户端id，如果不设置，会自动生成一个非空字符串，内容形式为 consumer-1，consumer-2 这种格式。
+
+#### 订阅主题与分区
+
+我们需要为创建好的消费者订阅主题，一个消费者可以订阅一个或多个主题。可以通过 `subscribe()` 方法订阅主题，对于这个方法而言，既可以以集合的方式订阅多个主题，
+也可以以正则表达式的形式订阅特定模式的主题，如下方法：
+
+```java
+void subscribe(Collection<String> var1);
+void subscribe(Collection<String> var1, ConsumerRebalanceListener var2);
+void assign(Collection<TopicPartition> var1);
+void subscribe(Pattern var1, ConsumerRebalanceListener var2);
+void subscribe(Pattern var1);
+```
+
+以集合的方式比较好理解，就是订阅一组主题。如果消费者采用的是正则表达式的方式订阅，在之后的创建过程中，如果有人又创建了新的主题，并且主题的名字与正则表达式相匹配，
+那么这个消费者就可以消费到新添加的主题中的消息。如果应用程序需要消费多个主题，并且可以处理不同的类型，那么这种订阅方式就很有效。在kafka和其他系统之间进行数据赋值时，这种正则表达式的方式显得很常见,
+正则表达式订阅的示例代码如下：
+
+```java
+consumer.subscribe(Pattern.compile("topic-.*"));
+```
+
+消费者不但可以订阅主题，还可以通过 `assign()` 方法直接订阅主题的特定分区。
+
+```java
+void assign(Collection<TopicPartition> partitions);
+```
+
+既然有订阅，那就有取消订阅，我们可以使用 `unsubscribe()` 方法取消订阅。
+
+```java
+consumer.unsubscribe();
+```
+
+> 通过 sbscribe() 方法订阅的主题具有消费者自动再均衡的功能，在多个消费者的情况下根据分区策略来自动分配各个消费者与分区的关系。当消费组内的消费者增加或减少时，分区分配关系会自动调整，
+> 以实现消费负载均衡及故障自动转移。而通过 assign() 方法订阅分区时，是不具备消费者自动均衡的功能。
+
+#### 反序列化
+
+生产者需要用序列化器（Serializer）把对象转换成字节数组才能通过网络发送给 Kafka。而在对侧，消费者需要用反序列化器（Deserializer）把从 Kafka 中收到的字节数组转换成相应的对象。
+客户端自带了 org.apache.kafka.common.serialization.StringSerializer，除了用于 String 类型的序列化器，还有 ByteArray、ByteBuffer、Bytes、Double、Integer、Long 这几种类型，
+它们都实现了 org.apache.kafka.common.serialization.Serializer。
+
+生产者使用的序列化器和消费者使用的反序列化器是需要一一对应的，如果生产者使用了某种序列化器，如 StringSerializer，而消费者使用了另一种序列化器，比如 IntegerSerializer，
+那么是无法解析出想要的数据的。
+
+但是，如无特殊需求，不建议使用自定义的序列化器和反序列化器，这样会增加消费者和生产者之间的耦合度。在实际应用中，在 Kafka 提供的序列化器和反序列化器满足不了应用需求的前提下，
+推荐使用 Avro、JSON、Thrift、ProtoBuf 或 Protostuff 等通用的序列化工具来包装，以求尽可能实现得更加通用且前后兼容。使用通用的序列化工具也需要实现 Serializer 和 Deserializer 接口，
+因为 Kafka 客户端的序列化和反序列化入口必须是这两个类型。
+
+#### 消息消费
+
+Kafka的消费是基于拉模式的。消息的消费一般有两种模式：push 模式和 pull 模式。推模式是服务器主动将消息推送给消费者，拉模式是消费者向服务端发送请求拉取消息。
+
+kafka 遵循比较传统的设计，消费者从 broker pull 消息，一些日志中心的系统，比如 Scribe 和 Apache Flume ，采用非常不同的 push 模式（push 数据到下游）。
+事实上，push 模式和 pull 模式各有优劣。push 模式很难适应消费速率不同的消费者，因为消息发送速率是由 broker 决定的。push 模式的目标是尽可能以最快速度传递消息，
+但是这样很容易造成消费者来不及处理消息，典型的表现就是拒绝服务以及网络拥塞；而 pull 模式则可以根据消费者的消费能力以适当的速率消费消息。
+
+基于 pull 模式的另一个优点是，它有助于积极的批处理的数据发送到消费者。基于 push 模式必须选择要么立即发送请求或者积累更多的数据，然后在不知道下游消费者是否能够立即处理它的情况下发送，
+如果是低延迟，这将导致一次只发送一条消息，以便传输缓存，这是实在是一种浪费，基于 pull 的设计解决这个问题，消费者总是 pull 在日志的当前位置之后 pull 所有可用的消息（或配置一些大 size），
+所以消费者可设置消费多大的量，也不会引起不必要的等待时间。
+
+基于 pull 模式不足之处在于，如果 broker 没有数据，消费者会轮询，忙等待数据直到数据到达，为了避免这种情况，Kafka 允许消费者在 pull 请求时候使用 "long poll" 进行阻塞，
+直到数据到达（并且设置等待时间的好处是可以积累消息，组成大数据块一并发送）。
+
+kafka 将 topic 分为一组完全有序的分区，每个分区在任何给定的时间都由每个订阅消费者组中的一个消费者消费。这意味着消费者在每个分区中的位置只是一个整数，下一个消息消费的偏移量。
+这使得关于已消费到哪里的状态变得非常的小，每个分区只有一个数字。可以定期检查此状态。这使得等同于消息应答并更轻量。
+
+这么做有一个好处，消费者可以故意地回到旧的偏移量并重新消费数据。这违反了一个队列的共同契约，但这被证明是许多消费者的基本特征。 例如，如果消费者代码有 bug，并且在消费一些消息之后被发现，
+消费者可以在修复错误后重新消费这些消息。
+
+pull 方法具体定义如下：
+
+```java
+ConsumerRecords<K, V> poll(Duration timeout);
+```
+
+消费者消费到的每条消息类型为 ConsumerRecord，它的结构如下：
+
+```java
+public class ConsumerRecord<K, V> {
+    public static final long NO_TIMESTAMP = -1L;
+    public static final int NULL_SIZE = -1;
+    public static final int NULL_CHECKSUM = -1;
+    private final String topic; //主题
+    private final int partition; //分区
+    private final long offset; //所属分区偏移量
+    private final long timestamp; //时间戳
+    // 两种类型，CreateTime  和 LogAppendTime
+    // 分别代表消息创建的时间，追加到日志的时间
+    private final TimestampType timestampType;
+    private final int serializedKeySize;// key 经过序列化后的大小，如果 key 为空，该值为 -1
+    private final int serializedValueSize;// value 经过序列化后的大小，如果 value 为空，该值为 -1
+    private final Headers headers;// 消息的头部内容
+    private final K key;// 消息的键
+    private final V value;// 消息的值
+    private final Optional<Integer> leaderEpoch;
+    private volatile Long checksum;// CRC32 的校验值
+    // 部分省略
+}
+```
+
+topic 和 partition 分别代表消息所属主题和所在分区，offset 表示消息在所属分区的偏移量。
+timestamp 表示时间戳，与此对应的timestampType 表示时间戳的类型。timestampType 有两种类型：CreateTime 和LogAppendTime，分别代表消息创建的时间戳和消息追加到日志的时间戳。
+headers 表示消息的头部内容。
+key 和 value 分别表示消息的键和消息的值。
+serializedKeySize 和 serializedValueSize 分别表示 key 和 value 经过序列化之后的大小，如果 key 为空，则 serializedKeySize 值为 -1。
+同样，如果 value 为空，则 serializedValueSize 的值也会为 -1。
+checksum 是 CRC32 的校验值。
+
+`poll()` 方法的返回值类型是 ConsumerRecords，它用来表示一次拉取操作所获得的消息集合，内部包含了若干 ConsumerRecord，它提供了一个 `iterator()` 方法来循环遍历消息集合内部的消息，
+我们使用这种方法来获取消息集中的每一个 ConsumerRecord。
+
+```java
+ConsumerRecords<K, V> poll(Duration timeout);
+```
+
+除此之外，我们还可以按照分区维度来进行消费，这一点很有用，在手动提交位移时尤为明显。ConsumerRecords 类提供了一个 `records(TopicPartition)` 方法来获取消息集合中指定分区的消息，
+ConsumerRecords 类中并没提供与 `partitions()` 类似的 `topics()` 方法来查看拉取的消息集合中所包含的主题列表，如果要按照主题维度来进行消费，那么只能根据消费者订阅主题时的列表来进行逻辑处理。
+
+```java
+public List<ConsumerRecord<K, V>> records(TopicPartition partition) {
+    List<ConsumerRecord<K, V>> recs = this.records.get(partition);
+    if (recs == null)
+        return Collections.emptyList();
+    else
+        return Collections.unmodifiableList(recs);
+}
+```
+
+#### 位移消费
+
+对于 Kafka 的分区而言，它的每条消息都有唯一的 offset，用来表示消息在分区中对应的位置。消费者使用 offset 来表示消费到分区中某个消息所在的位置。offset，顾名思义，偏移量，也可翻译为位移。
+在每次调用 `poll()` 方法时，它返回的是还没有消费过的消息集，要做到这一点，就需要记录上一次消费过的位移。并且这个位移必须做持久化保存，而不是单单保存在内存中，
+否则消费者重启之后就无法知道之前的消费位移了。
+
+当加入新的消费者的时，必然会有 `再均衡` 的动作，对于同一分区而言，它可能在再均衡动作之后分配给新的消费者，如果不持久化保存消费位移，那么这个新的消费者也无法知道之前的消费位移。
+消费者位移存储在 Kafka 内部的主题 _consumer_offsets 中。
+
+这种把消费位移存储起来(持久化)的动作称为 `提交`，消费者在消费完消息之后需要执行消费位移的提交。
+
+假设当前消费者已经消费了 x 位置的消息，那么我们就可以说消费者的消费位移为 x。不过，需要明确的是，当前消费者需要提交的消费位移并不是 x，而是 x+1，它表示下一条需要拉取的消息的位置。
+在消费者中还有一个 commited offset 的概念，它表示已经提交过的消费位移。
+
+KafkaConsumer 类提供了 `position(TopicPartition)` 和 `commited(TopicPartition)` 两个方法来分别获取上面所说的 position 和 commiited offset 的值。
+
+在 kafka 消费的编程逻辑中位移是一大难点，自动提交消费位移的方式非常简便，它免去了复杂的位移提交逻辑，让代码更简洁。但随之而来的是重复消费和消费丢失的问题。假设刚提交完一次消费位移，
+然后拉取一批消息进行消费，在下一次自动提交消费位移之前，消费者崩溃了，那么又得从上一次位移提交的地方重新开始消费。我们可以通过减少位移提交的时间间隔来减少重复消息的窗口大小，
+但这样并不能避免重复消费的发送，而且也会使位移提交更加频繁。
+
+自动位移提交的方式在正常情况下不会发生消息丢失和重复消费的现象，但是在编程的世界里异常不可避免。自动提交无法做到精确的位移管理。Kafka 提供了手动管理位移提交的操作，这样可以使开发人员对消费位移的管理控制更加灵活。
+很多时候并不是说 poll 拉取到消息就算消费完成，而是需要将消息写入到数据库、写入本地缓存，或者是更加复杂的业务处理。在这些场景下，所有的业务处理完成才能认为消息被成功消费，
+手动的提交方式让开发人员根据程序的逻辑在合适的地方进行位移提交。
+
+手动提交需要将 `enable.auto.commit` 配置为 false，手动提交分为同步提交和异步提交，对应于 KafkaConsumer 中的 commitSync 和 commitAsync 两个方法。
+
+commitSync 方法会根据 poll 拉取到的最新位移来进行提交，即 position 的位置，只要没有发生不可恢复的错误，它就会阻塞消费者线程直至位移提交完成。对于不可恢复的错误，
+如 CommitFailedException/WakeupException/InterruptException/AuthenticationException/AuthorizationException 等，我们可以将其捕获并做针对性的处理。
+
+与 commitSync 相反，异步提交的方式 commitAsync 在执行的时候，消费者线程不会阻塞，可能在提交消费位移的结果返回之前就开始了新一轮的拉取操作，消费者的性能增强。
+
+#### 控制或关闭消费
+
+KafkaConsumer 提供了对消费速度进行控制的方法，有些场景，需要我们暂停某些分区的消费而先消费其他分区，当达到一定条件时再恢复这些分区的消费。
+`pause()` 和 `resume()` 方法来分别实现暂停某些分区在拉取操作时返回数据给客户端和恢复某些分区向客户端返回数据的操作。
+
+```java
+void pause(Collection<TopicPartition> var1);
+void resume(Collection<TopicPartition> var1);
+```
+
+还有一个无参的 `paused()` 方法返回被暂停的分区集合。
+
+```java
+Set<TopicPartition> paused();
+```
+
+#### 指定位移消费
+
+正是有了消费位移的持久化，才使消费者在关闭、崩溃或者遇到再均衡的时候，可以让接替的消费者能够根据存储的消费位移继续进行消费。
+
+当一个新的消费组建立的时候，它根本没有可以查找的消费位移。或者消费组内的一个新消费者订阅了一个新的主题，它也没有可以查找的消费位移。
+
+当消费者查找不到所记录的消费位移的时候，就会根据消费者客户端参数 `auto.offset.reset` 的配置来决定从何处开始进行消费，这个参数的默认值为 `latest`，表示从分区末尾开始消费。
+如果将 `auto.offset.reset` 设置成 `earliest`，那么消费者会从起始处，也就是 0 开始消费。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/位移消费-reset.png" width="600px">
+</div>
+
+有些场景我们需要更细粒度的掌控消息，我们需要从特定的位移处开始拉取消息，`seek()` 方法提供了这个功能，让我们得以追前消费或回溯消费。
+
+```java
+void seek(TopicPartition var1, long offset);
+```
+
+`seek()` 方法中的参数 partition 表示分区，而 offset 参数用来指定从分区的哪个位置开始消费。`seek()` 方法只能重置消费者分配到的分区的消费位置，
+而分区的分配是在 `poll()` 方法的调用过程中实现的。也就是说在执行 `seek()` 方法之前需要先执行一次 `poll()` 方法，等到分配到分区之后才可以重置消费位置。
+
+```java
+// consumer.seek(tp,2) 设置每个分区消费的位置是 2。
+consumer.poll(Duration.ofMillis(10000));
+Set<TopicPartition> assignment = consumer.assignment();
+for(TopicPartition tp : assignment){
+    consumer.seek(tp,2);
+}
+while (true){
+    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(Long.MAX_VALUE));
+    //  .....
+}
+```
+
+#### 消费者拦截器
+
+消费者拦截器主要在消费到消息或在提交消费位移的时候进行一些定制化的工作。
+
+消费者拦截器需要实现 ConsumerInterceptor 接口，该接口有三个方法:
+
+```java
+public interface ConsumerInterceptor<K, V> extends Configurable, AutoCloseable {
+    ConsumerRecords<K, V> onConsume(ConsumerRecords<K, V> var1);
+    void onCommit(Map<TopicPartition, OffsetAndMetadata> var1);
+    void close();
+}
+```
+
+KafkaConsumer 会在 `poll()` 方法返回之前调用拦截器的 `onConsume()` 方法来对消息进行相应的定制化操作，比如修改返回的内容、按照某种规则过滤消息。
+如果 `onConsume()` 方法抛出异常，那么会被捕获并记录到日志，但是异常不会在向上传递。
+
+KafkaConsumer 会在提交完消费位移之后调用调用拦截器的 `onCommit()` 方法，可以使用这个方法来记录跟踪所提交的位移信息，比如当消费者调用 `commitSync()` 的无参方法时，
+我们不知道提交的具体细节，可以使用拦截器 `onCommit()` 方法做到这一点。
+
+自定义拦截器实现后，需要在 KafkaConsumer 中配置该拦截器，通过参数 `interceptor.classes` 参数实现：
+
+```java
+properties.put(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG, ConsumerInterceptorTTL.class);
+```
+
+#### 再均衡
+
+再均衡是指分区的所属权从一个消费者转移到另一消费者的行为，它为消费组具备高可用性和伸缩性提供保障，使我们可以既方便又安全地删除消费组内的消费者或往消费组内添加消费者。
+不过在再均衡发生期间，消费组内的消费者是无法读取消息的。也就是说，在再均衡发生期间的这一小段时间内，消费组会变得不可用。
+
+另外，当一个分区被重新分配给另一个消费者时，消费者当前的状态也会丢失。比如消费者消费完某个分区中的一部分消息时还没有来得及提交消费位移就发生了再均衡操作，
+之后这个分区又被分配给了消费组内的另一个消费者，原来被消费完的那部分消息又被重新消费一遍，也就是发生了重复消费。一般情况下，应尽量避免不必要的再均衡的发生。
+
+讲述 `subscribe()` 方法时提及 ConsumerRebalanceListener（再均衡监听器），在 `subscribe(Collection topics, ConsumerRebalanceListener listener)` 
+和 `subscribe(Pattern pattern, ConsumerRebalanceListener listener)` 方法中都有它的身影，ConsumerRebalanceListener 用来设定发生再均衡动作前后的一些准备或收尾的动作。
+ConsumerRebalanceListener 是一个接口，包含 2 个方法，具体的释义如下：
+
+- `void onPartitionsRevoked(Collection partitions)` 这个方法会在再均衡开始之前和消费者停止读取消息之后被调用。
+可以通过这个回调方法来处理消费位移的提交，以此来避免一些不必要的重复消费现象的发生。参数 partitions 表示再均衡前所分配到的分区。
+- `void onPartitionsAssigned(Collection partitions)` 这个方法会在重新分配分区之后和消费者开始读取消费之前被调用。参数 partitions 表示再均衡后所分配到的分区。
+
+下面通过一个例子来演示 ConsumerRebalanceListener 的用法:
+
+```java
+// 再均衡监听器的用法
+Map<TopicPartition, OffsetAndMetadata> currentOffsets = new HashMap<>();
+consumer.subscribe(Arrays.asList(topic), new ConsumerRebalanceListener() {
+    @Override
+    public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+        consumer.commitSync(currentOffsets);
+	        currentOffsets.clear();
+    }
+    @Override
+    public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+        //do nothing.
+    }
+});
+
+try {
+    while (isRunning.get()) {
+        ConsumerRecords<String, String> records =
+                consumer.poll(Duration.ofMillis(100));
+        for (ConsumerRecord<String, String> record : records) {
+            //process the record.
+            currentOffsets.put(
+                    new TopicPartition(record.topic(), record.partition()),
+                    new OffsetAndMetadata(record.offset() + 1));
+        }
+        consumer.commitAsync(currentOffsets, null);
+    }
+} finally {
+    consumer.close();
+}
+```
+
+示例代码中，消费位移被暂存到一个局部变量 currentOffsets 中，这样在正常消费的时候可以通过 `commitAsync()` 方法来异步提交消费位移，
+在发生再均衡动作之前可以通过再均衡监听器的 `onPartitionsRevoked()` 回调执行 `commitSync()` 方法同步提交消费位移，以尽量避免一些不必要的重复消费。
