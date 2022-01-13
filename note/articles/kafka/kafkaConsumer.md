@@ -11,6 +11,11 @@
       - [指定位移消费](#指定位移消费)
       - [消费者拦截器](#消费者拦截器)
       - [再均衡](#再均衡)
+    - [多线程设计](#多线程设计)
+      - [一个消费线程对应一个 KafkaConsumer 实例](#一个消费线程对应一个-KafkaConsumer-实例)
+      - [多个消费线程同时消费一个分区](#多个消费线程同时消费一个分区)
+      - [单个消费者配合多线程的处理模块](#单个消费者配合多线程的处理模块)
+    - [消费者参数](#消费者参数)
 
 与生产者对应的是消费者，应用程序可以通过 KafkaConsumer 来订阅主题，并从订阅的主题中拉取消息。
 
@@ -28,7 +33,7 @@
 
 - 点对点模式是基于队列的，消息生产者发送消息到队列，消息消费者从队列中接收消息。
 - 发布订阅模式定义了如何向一个内容节点发布和订阅消息，这个内容节点称为主题（Topic），主题可以认为是消息传递的中介，消息发布者将消息发布到某个主题，而消息订阅者从主题中订阅消息。
-主题使得消息的订阅者和发布者互相保持独立，不需要进行接触即可保证消息的传递，发布/订阅模式在消息的一对多广播时采用。
+  主题使得消息的订阅者和发布者互相保持独立，不需要进行接触即可保证消息的传递，发布/订阅模式在消息的一对多广播时采用。
 
 Kafka 同时支持两种模式，而这正是得益于消费者与消费组模型的契合：
 
@@ -340,12 +345,12 @@ properties.put(ConsumerConfig.INTERCEPTOR_CLASSES_CONFIG, ConsumerInterceptorTTL
 另外，当一个分区被重新分配给另一个消费者时，消费者当前的状态也会丢失。比如消费者消费完某个分区中的一部分消息时还没有来得及提交消费位移就发生了再均衡操作，
 之后这个分区又被分配给了消费组内的另一个消费者，原来被消费完的那部分消息又被重新消费一遍，也就是发生了重复消费。一般情况下，应尽量避免不必要的再均衡的发生。
 
-讲述 `subscribe()` 方法时提及 ConsumerRebalanceListener（再均衡监听器），在 `subscribe(Collection topics, ConsumerRebalanceListener listener)` 
+讲述 `subscribe()` 方法时提及 ConsumerRebalanceListener（再均衡监听器），在 `subscribe(Collection topics, ConsumerRebalanceListener listener)`
 和 `subscribe(Pattern pattern, ConsumerRebalanceListener listener)` 方法中都有它的身影，ConsumerRebalanceListener 用来设定发生再均衡动作前后的一些准备或收尾的动作。
 ConsumerRebalanceListener 是一个接口，包含 2 个方法，具体的释义如下：
 
 - `void onPartitionsRevoked(Collection partitions)` 这个方法会在再均衡开始之前和消费者停止读取消息之后被调用。
-可以通过这个回调方法来处理消费位移的提交，以此来避免一些不必要的重复消费现象的发生。参数 partitions 表示再均衡前所分配到的分区。
+  可以通过这个回调方法来处理消费位移的提交，以此来避免一些不必要的重复消费现象的发生。参数 partitions 表示再均衡前所分配到的分区。
 - `void onPartitionsAssigned(Collection partitions)` 这个方法会在重新分配分区之后和消费者开始读取消费之前被调用。参数 partitions 表示再均衡后所分配到的分区。
 
 下面通过一个例子来演示 ConsumerRebalanceListener 的用法:
@@ -384,3 +389,262 @@ try {
 
 示例代码中，消费位移被暂存到一个局部变量 currentOffsets 中，这样在正常消费的时候可以通过 `commitAsync()` 方法来异步提交消费位移，
 在发生再均衡动作之前可以通过再均衡监听器的 `onPartitionsRevoked()` 回调执行 `commitSync()` 方法同步提交消费位移，以尽量避免一些不必要的重复消费。
+
+### 多线程设计
+
+KafkaProducer 是线程安全的，然而 KafkaConsumer 是非线程安全的。KafkaConsumer 当中定义了一个 `acquire()` 方法，用来检测当前是否只有一个线程在操作，
+若有其他线程正在操作则会抛出 Concurrentmodifcationexception 异常。KafkaConsumer中的每个公用方法在执行所要执行的动作之前都会调用这个方法，只有 wakeup() 方法是个例外。
+
+```C
+java.util.ConcurrentModificationException: KafkaConsumer is not safe for multi-threaded access.
+```
+
+KafkaConsumer 非线程安全并不意味着我们在消费消息的时候只能以单线程的方式运行。如果生产者发送消息的速度大于消费者处理消息的速度，那么就会有越来越多的消息得不到及时的处理，造成一定的时延。
+除此之外，kafka 中存在消息保留机制，有些消息有可能在被消费之前就被清理了，从而造成消息的丢失。我们可以通过多线程的方式实现消息消费，多线程的目的就是提高整体的消费能力。
+
+
+#### 一个消费线程对应一个 KafkaConsumer 实例
+
+多线程的实现方式有多种，第一种也是最常见的方式：线程封闭，即为每个线程实例化一个 KafkaConsumer 对象，启动多个消费线程。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/一个线程对应一个KafkaConsumer实例.png" width="600px">
+</div>
+
+示例代码：
+
+```java
+/**
+ * 一个消费线程对应一个 KafkaConsumer 实例
+ * 
+ * 创建多个消费线程
+ */
+public class FirstMultiConsumerThreadDemo {
+
+    public static final String brokerList = "nas-cluster1:9092";
+    public static final String topic = "test.topic";
+    public static final String groupId = "group.demo";
+
+    public static Properties initConfig() {
+        Properties properties = new Properties();
+        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        properties.put("key.deserializer", StringDeserializer.class.getName());
+        properties.put("value.deserializer", StringDeserializer.class.getName());
+        return properties;
+    }
+
+    public static void main(String[] args) {
+        Properties props = initConfig();
+        int consumerThreadNum = 4;
+        for (int i = 0; i < consumerThreadNum; i++) {
+            // 启动多个 KafkaConsumer 实例
+            new KafkaConsumerThread(props, topic).start();
+        }
+    }
+
+    public static class KafkaConsumerThread extends Thread {
+
+        private KafkaConsumer<String, String> kafkaConsumer;
+
+        public KafkaConsumerThread(Properties props, String topic) {
+            this.kafkaConsumer = new KafkaConsumer<>(props);
+            this.kafkaConsumer.subscribe(Arrays.asList(topic));
+        }
+
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    ConsumerRecords<String, String> records = kafkaConsumer.poll(Duration.ofMillis(100));
+                    for (ConsumerRecord<String, String> record : records) {
+                        //实现处理逻辑
+                        System.out.println(record.value());
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                kafkaConsumer.close();
+            }
+        }
+    }
+}
+```
+
+内部类 KafkaConsumerThread 代表消费线程,其内部包裹着一个独立的 KafkaConsumer 实例。通过外部类的 main 方法来启动多个消费线程,消费线程的数量由 consumerThreadNum 变量指定。
+一般一个主题的分区数事先可以知晓,可以将 consumerThreadNum 设置成不大于分区数的值,如果不知道主题的分区数,那么也可以通过 KafkaConsumer 类的 `partitionsFor()` 方法来间接获取，
+进而再设置合理的 consumerThreadNum 值。
+
+####  多个消费线程同时消费一个分区
+
+`多个消费线程同时消费一个分区` 和 `一个消费线程对应一个 KafkaConsumer 实例，启动多个消费线程` 没有本质上的区别，它的优点是每个线程可以按顺序消费各个分区中的消息。
+缺点也很明显，每个消费线程都要维护一个独立的 TCP 连接，如果分区数和 consumerThreadNum 的值都很大,那么会造成不小的系统开销。
+
+#### 单个消费者配合多线程的处理模块
+
+通常，一个消息的消费是从 `poll()` 拉取到消息开始，到完成消息的业务处理结束，然后再 `poll()` 拉取新的消息，反复进行。我们可以把这个过程分为 `poll 阶段` 和 `hander 阶段`，
+显而易见的是，如果`hander 阶段` 阶段处理迅速，那面 `poll 阶段` 就可以保证较高的消费水平；反之，如果 `hander 阶段` 阶段处理缓慢必然拉低 `poll 阶段` 的消费速度。
+
+可以说 `hander 阶段` 的处理速度将称为 `poll 阶段` 的瓶颈。
+
+`poll 阶段` 本身并没有什么业务，甚至和 `hander 阶段` 也没用业务关联，因此我们可以将 `poll 阶段` 和 `hander 阶段` 解耦：单线程的 KafkaConsumer 处理 `poll 阶段` 和消息分发，
+HanderThreadPool 处理 `hander 阶段`。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/单个消费者配合多线程的处理模块.png" width="600px">
+</div>
+
+示例代码：
+
+```java
+/**
+ * 单个消费者配合多线程的处理模块
+ */
+public class ThirdMultiConsumerThreadDemo {
+    
+    public static final String brokerList = "nas-cluster1:9092";
+    public static final String topic = "test.topic";
+    public static final String groupId = "group.demo";
+
+    public static Properties initConfig() {
+        Properties properties = new Properties();
+        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        properties.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        properties.put("key.deserializer", StringDeserializer.class.getName());
+        properties.put("value.deserializer", StringDeserializer.class.getName());
+        return properties;
+    }
+
+    public static void main(String[] args) {
+        Properties properties = initConfig();
+        KafkaConsumerThread consumerThread = new KafkaConsumerThread(properties, topic,
+                Runtime.getRuntime().availableProcessors());
+        consumerThread.start();
+    }
+
+    public static class KafkaConsumerThread extends Thread {
+        private KafkaConsumer<String, String> kafkaConsumer;
+        private ExecutorService executorService;
+        private int threadNumber;
+
+        public KafkaConsumerThread(Properties properties, String topic, int availableProcessors) {
+            kafkaConsumer = new KafkaConsumer<String, String>(properties);
+            kafkaConsumer.subscribe(Collections.singletonList(topic));
+            this.threadNumber = availableProcessors;
+            executorService = new ThreadPoolExecutor(threadNumber, threadNumber, 0L, TimeUnit.MILLISECONDS,
+                    new ArrayBlockingQueue<>(1000), new ThreadPoolExecutor.CallerRunsPolicy());
+        }
+
+        @Override
+        public void run() {
+            try {
+                while (true) {
+                    ConsumerRecords<String, String> records = kafkaConsumer.poll(Duration.ofMillis(100));
+                    if (!records.isEmpty()) {
+                        executorService.submit(new RecordsHandler(records));
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                kafkaConsumer.close();
+            }
+        }
+    }
+
+    public static class RecordsHandler extends Thread {
+        public final ConsumerRecords<String, String> records;
+
+        public RecordsHandler(ConsumerRecords<String, String> records) {
+            this.records = records;
+        }
+
+        @Override
+        public void run() {
+            for (ConsumerRecord<String, String> record : records) {
+                //实现处理逻辑
+                System.out.println(record.value());
+            }
+        }
+    }
+}
+```
+
+代码中 RecordsHandler 类是用来处理消息的,而 KafkaConsumerThread 类对应的是一个消费线程,里面通过线程池的方式来调用 RecordsHandler 处理一批批的消息。
+注意 KafkaConsumerThread 类中 ThreadPoolExecutor 里的最后一个参数设置的是拒绝策略, 这样可以防止线程池的总体消费能力跟不上 `poll()` 拉取的能力,从而导致异常现象的发生。
+
+第三种实现方式不仅可以横向扩展，通过开启多个 KafkaConsumerthread 实例来进一步提升整体的消费能力，而且减少了 TCP 连接数量；缺点就是很难对消息进行顺序处理。
+
+### 消费者参数
+
+在 KafkaConsumer 中，大部分的参数都有合理的默认值，一般不需要修改它们。不过了解这些参数可以更合理地使用消费者客户端，其中还有一些重要的参数涉及程序的可用性和性能，如果能够熟练掌握它们，也可以让我们在编写相关的程序时能够更好地进行性能调优与故障排除。
+
+#### fetch.min.bytes
+
+该属性指定了消费者从服务器获取记录的最小字节数。broker 在收到消费者的数据请求时，如果可用的数据量小于 `fetch.min.bytes` 指定的大小，那么它会等到有足够的可用数据时才把它返回给消费者。
+这样可以降低消费者和 broker 的工作负载，因为它们在主题不是很活跃的时候(或者一天里的低谷时段)就不需要来来回回地处理消息。如果没有很多可用数据，但消费者的 CPU 使用率却很高，
+那么就需要把该属性的值设得比默认值大。如果消费者的数量比较多，把该属性的值设置得大一点可以降低 broker 的工作负载。
+
+#### fetch.max.wait.ms
+
+我们通过 `fetch.min.bytes` 告诉 Kafka，等到有足够的数据时才把它返回给消费者。而 `fetch.max.wait.ms` 则用于指定 broker 的等待时间，默认是 500ms。如果没有足够的数据流入 Kafka，
+消费者获取最小数据量的要求就得不到满足，最终导致 500ms 的延迟。 如果要降低潜在的延迟(为了满足 SLA)，可以把该参数值设置得小一些。如果 `fetch.max.wait.ms` 被设为 100ms，
+并且 `fetch.min.bytes` 被设为 1MB，那么 Kafka 在收到消费者的请求后，要么返回 1MB 数据，要么在 100ms 后返回所有可用的数据，就看哪个条件先得到满足。
+
+#### max.parition.fetch.bytes
+
+该属性指定了服务器从每个分区里返回给消费者的最大字节数。它的默认值是 1MB，也就是说，`KafkaConsumer.poll()` 方法从每个分区里返回的记录最多不超过 `max.parition.fetch.bytes` 指定的字节。
+如果一个主题有 20 个分区和 5 个消费者，那么每个消费者需要至少 4MB 的可用内存来接收记录。在为消费者分配内存时，可以给它们多分配一些，因为如果群组里有消费者发生崩溃，剩下的消费者需要处理更多的分区。
+`max.parition.fetch.bytes` 的值必须比 broker 能够接收的最大消息的字节数(通过 `max.message.size` 属性配置)大，否则消费者可能无法读取这些消息，导致消费者一直挂起重试。
+在设置该属性时，另一个需要考虑的因素是消费者处理数据的时间。消费者需要频繁调用 poll() 方法来避免会话过期和发生分区再均衡，如果单次调用 poll() 返回的数据太多，消费者需要更多的时间来处理，
+可能无法及时进行下一个轮询来避免会话过期。如果出现这种情况，可以把 `max.parition.fetch.bytes` 值改小，或者延长会话过期时间。
+
+#### session.timeout.ms
+
+该属性指定了消费者在被认为死亡之前可以与服务器断开连接的时间，默认是 3s。如果消费者没有在 `session.timeout.ms` 指定的时间内发送心跳给群组协调器，就被认为已经死亡，协调器就会触发再均衡，
+把它的分区分配给群组里的其他消费者。该属性与 `heartbeat.interval.ms` 紧密相关。`heartbeat.interval.ms` 指定了 poll() 方法向协调器发送心跳的频率，
+`session.timeout.ms` 则指定了消费者可以多久不发送心跳。所以，一般需要同时修改这两个属性，`heartbeat.interval.ms` 必须比 `session.timeout.ms` 小，
+一般是 `session.timeout.ms` 的三分之一。如果 `session.timeout.ms` 是 3s，那么 `heartbeat.interval.ms` 应该是 ls。把 `session.timeout.ms` 值设得比默认值小，
+可以更快地检测和恢 复崩溃的节点，不过长时间的轮询或垃圾收集可能导致非预期的再均衡。把该属性的值设置得大一些，可以减少意外的再均衡 ，不过检测节点崩溃需要更长的时间。
+
+#### auto.offset.reset
+
+该属性指定了消费者在读取一个没有偏移量的分区或者偏移量无效的情况下(因消费者长时间失效，包含偏移量的记录已经过时井被删除)该作何处理。它的默认值是 latest，意思是说，在偏移量无效的情况下，
+消费者将从最新的记录开始读取数据(在消费者启动之后生成的记录)。另一个值是 earliest，意思是说，在偏移量无效的情况下，消费者将从 起始位置读取分区的记录。
+
+#### enable.auto.commit
+
+该属性指定了消费者是否自动提交偏移量，默认值是 true。为了尽量避免出现重复数据和数据丢失，可以把它设为 false，由自己控制何时提交偏移量。如果把它设为 true，
+还可以通过配置 `auto.commit.interval.mls` 属性来控制提交的频率。
+
+#### partition.assignment.strategy
+
+我们知道，分区会被分配给群组里的消费者。 PartitionAssignor 根据给定的消费者和主题，决定哪些分区应该被分配给哪个消费者。
+
+Kafka 有两个默认的分配策略：
+
+- Range：该策略会把主题的若干个连续的分区分配给消费者。假设消费者 C1 和消费者 C2 同时 订阅了主题 T1 和主题 T2，井且每个主题有 3 个分区。
+那么消费者 C1 有可能分配到这两个主题的分区 0 和 分区 1，而消费者 C2 分配到这两个主题 的分区 2。因为每个主题 拥有奇数个分区，而分配是在主题内独立完成的，
+第一个消费者最后分配到比第二个消费者更多的分区。只要使用了 Range 策略，而且分区数量无法被消费者数量整除，就会出现这种情况。
+- RoundRobin：该策略把主题的所有分区逐个分配给消费者。如果使用 RoundRobin 策略来给消费者 C1 和消费者 C2分配分区，那么消费者 C1 将分到主题 T1 的分区 0和分区 2以及主题 T2 的分区 1，
+消费者 C2 将分配到主题 T1 的分区 l 以及主题T2 的分区 0 和分区 2。一般 来说，如果所有消费者都订阅相同的主题(这种情况很常见), 
+RoundRobin 策略会给所有消费者分配相同数量的分区(或最多就差一个分区)。
+
+可以通过设置 `partition.assignment.strategy` 来选择分区策略。默认使用的是 `org. apache.kafka.clients.consumer.RangeAssignor`，这个类实现了 Range 策略，
+也可以把它改成 `org.apache.kafka.clients.consumer.RoundRobinAssignor`，当然我们还可以使用自定义策略，在这种情况下 ，`partition.assignment.strategy` 属性的值就是自定义类的名字。
+
+#### client.id
+
+该属性可以是任意字符串，broker 用它来标识从客户端发送过来的消息，通常被用在日志、度量指标和配额里。
+
+#### max.poll.records
+
+该属性用于控制单次调用 call() 方法能够返回的记录数量，可以帮你控制在轮询里需要处理的数据量。
+
+#### receive.buffer.bytes 和 send.buffer.bytes
+
+Socket 在读写数据时用到的 TCP 缓冲区也可以设置大小。如果它们被设为 -1，就使用操作系统的默认值。如果生产者或消费者与 broker 处于不同的数据中心内，可以适当增大这些值，
+因为跨数据中心的网络一般都有比较高的延迟和比较低的带宽。
