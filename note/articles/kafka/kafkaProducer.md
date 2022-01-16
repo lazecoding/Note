@@ -11,6 +11,11 @@
       - [整体架构](#整体架构)
       - [元数据更新](#元数据更新)
       - [生产者参数](#生产者参数)
+    - [消息保障](#消息保障)
+      - [ACK 机制](#ACK-机制)
+      - [幂等](#幂等)
+        - [幂等实现](#幂等实现)
+      - [事务](#事务)
  
 从编程的角度而言，生产者就是负责向 Kafka 发送消息的应用程序。在 Kafka 的历史变迁中，一共有两个大版本的生产者客户端：第一个是于 Kafka 开源之初使用 Scala 语言编写的客户端，我们可以称之为旧生产者客户端（Old Producer）或 Scala 版生产者客户端；第二个是从 Kafka 0.9x 版本开始推出的使用 Java 语言编写的客户端，我们可以称之为新生产者客户端（New Producer）或 Java 版生产者客户端，它弥补了旧版客户端中存在的诸多设计缺陷。
 
@@ -275,7 +280,7 @@ ProducerRecord<String, String> record = new ProducerRecord<>(topic, "hello,Kakfa
 
 - `acks = 1`。默认值即为 1。生产者发送消息之后，只要分区的 leader 副本成功写入消息，那么它就会收到来自服务端的成功响应。如果消息无法写入 leader 副本，比如在 leader 副本崩溃、重新选举新的 leader 副本的过程中，那么生产者就会收到一个错误的响应，为了避免消息丢失，生产者可以选择重发消息。如果消息写入 leader 副本并返回成功响应给生产者，且在被其他 follower 副本拉取之前 leader 副本崩溃，那么此时消息还是会丢失，因为新选举的 leader 副本中并没有这条对应的消息。`acks` 设置为 1，是消息可靠性和吞吐量之间的折中方案。
 - `acks = 0`。生产者发送消息之后不需要等待任何服务器端的响应。如果在消息从发送到写入 Kafka 的过程中出现了某些异常，导致 Kafka 并没有收到这条消息，那么生产者也无从得知，消息也就丢失了。在其他配置环境相同的情况下，`acks` 设置为 0 可以达到最大的吞吐量。
-- `acks = -1 或 acks = all`。生产者在消息发送之后，需要等待ISR中的所有副本都成功写入消息之后才能够收到来自服务端的成功响应。在其他配置环境相同的情况下，`acks` 设置为 -1（all）可以达到最强的可靠性。但这并不意味着消息就一定可靠，因为 ISR 中可能只有 leader 副本，这样就退化成了 `acks = 1` 的情况。要获得更高的消息可靠性需要配合 `min.insync.replicas` 等参数的联动。
+- `acks = -1 或 acks = all`。生产者在消息发送之后，需要等待 ISR 中的所有副本都成功写入消息之后才能够收到来自服务端的成功响应。在其他配置环境相同的情况下，`acks` 设置为 -1（all）可以达到最强的可靠性。但这并不意味着消息就一定可靠，因为 ISR 中可能只有 leader 副本，这样就退化成了 `acks = 1` 的情况。要获得更高的消息可靠性需要配合 `min.insync.replicas` 等参数的联动。另外，它还可能产生消息重复的问题，当所有 follower 副本完成同步并由 leader 副本汇聚结果响应客户端的时候，leader 副本挂了，生产者就会认为消息发送失败，重试而导致消息重复。
 
 ##### max.request.size
 
@@ -334,4 +339,69 @@ Kafka 可以保证同一个分区中的消息是有序的。如果生产者按�
 | max.in.flight.requests.per.connection    | 5  | 限制每个连接（也就是客户端与Node之间的链接）最多缓存的请求数。                           |
 | metadata.max.age.ms  | 300000(5分钟)      | 如果在这个时间内元数据没有更新的话会被强制更新。                                            |
 | transactional.id     | null     |  设置事务 id，必须唯一。 |
-		
+	
+### 消息保障
+
+Kafka 提供了多种消息保障机制。
+
+#### ACK 机制
+
+Kafka 像大多数消息中间件一样，提供了 ACK 机制，通过 acks 参数控制。
+acks 是生产者客户端中的一个非常重要的参数，它用来指定分区中必须要有多少个副本收到这条消息，之后生产者才会认为这条消息是成功写入的。它涉及消息的可靠性和吞吐量之间的权衡。
+
+acks 参数有三种类型的值（都是字符串类型）。
+
+- `acks = 1`。默认值即为 1。生产者发送消息之后，只要分区的 leader 副本成功写入消息，那么它就会收到来自服务端的成功响应。如果消息无法写入 leader 副本，比如在 leader 副本崩溃、重新选举新的 leader 副本的过程中，那么生产者就会收到一个错误的响应，为了避免消息丢失，生产者可以选择重发消息。如果消息写入 leader 副本并返回成功响应给生产者，且在被其他 follower 副本拉取之前 leader 副本崩溃，那么此时消息还是会丢失，因为新选举的 leader 副本中并没有这条对应的消息。`acks` 设置为 1，是消息可靠性和吞吐量之间的折中方案。
+- `acks = 0`。生产者发送消息之后不需要等待任何服务器端的响应。如果在消息从发送到写入 Kafka 的过程中出现了某些异常，导致 Kafka 并没有收到这条消息，那么生产者也无从得知，消息也就丢失了。在其他配置环境相同的情况下，`acks` 设置为 0 可以达到最大的吞吐量。
+- `acks = -1 或 acks = all`。生产者在消息发送之后，需要等待 ISR 中的所有副本都成功写入消息之后才能够收到来自服务端的成功响应。在其他配置环境相同的情况下，`acks` 设置为 -1（all）可以达到最强的可靠性。但这并不意味着消息就一定可靠，因为 ISR 中可能只有 leader 副本，这样就退化成了 `acks = 1` 的情况。要获得更高的消息可靠性需要配合 `min.insync.replicas` 等参数的联动。另外，它还可能产生消息重复的问题，当所有 follower 副本完成同步并由 leader 副本汇聚结果响应客户端的时候，leader 副本挂了，生产者就会认为消息发送失败，重试而导致消息重复。
+
+#### 幂等
+
+为了保证消息的可靠性，我们一个保证消息送入且只送入一次主题分区中。
+
+Kafka 0.11.0.0 版本引入了幂等语义。一个幂等性的操作就是一种被执行多次造成的影响和只执行一次造成的影响一样的操作。如果出现导致生产者重试的错误，同样的消息，仍由同样的生产者发送多次，
+将只被写到 Kafka broker 的日志中一次。
+
+对于单个分区，幂等生产者不会因为生产者或 broker 故障而产生多条重复消息。想要开启这个特性，获得每个分区内的精确一次语义，也就是说没有重复，没有丢失，并且有序的语义，
+只需要 producer 配置 `enable.idempotence=true`。
+
+当我们启用 `enable.idempotence=true`，`retries` 将默认为 Integer.MAX_VALUE，`acks` 将默认为 "all"。
+
+##### 幂等实现
+
+为了实现 Producer 的幂等性，Kafka 引入了 Producer ID（即 PID）和 Sequence Number。
+
+- `PID`：每个新的 Producer 在初始化的时候会被分配一个唯一的 PID，这个 PID 对用户是不可见的。
+- `Sequence Numbler`：（对于每个PID，该 Producer 发送数据的每个 <Topic, Partition> 都对应一个从 0 开始单调递增的 Sequence Number。
+
+Kafka可能存在多个生产者，会同时产生消息，但对 Kafka 来说，只需要保证每个生产者内部的消息幂等就可以了，所有引入了 PID 来标识不同的生产者。
+
+Kafka 通过为每条消息增加一个 Sequence Numbler，通过 Sequence Numbler 来区分每条消息。每条消息对应一个分区，不同的分区产生的消息不可能重复。所有 Sequence Numbler 对应每个分区 Broker 端在缓存中保存了这 Sequence Numbler，
+对于接收的每条消息，如果其序号比 Broker 缓存中序号大于 1 则接受它，否则将其丢弃。这样就可以实现了消息重复提交了。但是，只能保证单个 Producer 对于同一个 <Topic, Partition> 的 Exactly Once 语义。
+不能保证同一个 Producer 一个 topic 不同的 partion 的幂等。
+
+#### 事务
+
+对于多分区保证幂等的场景，则需要事务特性来处理了。kafka 的事务跟我们常见数据库事务概念差不多，也是提供经典的 ACID，即原子性（Atomicity）、一致性 (Consistency)、隔离性 (Isolation) 和持久性 (Durability)。
+
+事务保证消息写入分区的原子性，即这批消息要么全部写入成功，要么全失败。此外，Producer 重启回来后，kafka 依然保证它们发送消息的精确一次处理。事务特性的配置也很简单：
+
+- 和幂等一样，开启 `enable.idempotence = true`。
+- 设置 Producer 端参数 `transctional.id`。
+
+启用事务的 Producer 的代码稍微也有点不一样，需要调一些事务处理的 API。数据的发送需要放在 beginTransaction 和 commitTransaction 之间。Consumer 端的代码也需要加上 `isolation.level`参数，
+用以处理事务提交的数据。示例代码:
+
+```java
+producer.initTransactions();
+try {
+     producer.beginTransaction();
+     producer.send(record1);
+     producer.send(record2);
+     producer.commitTransaction();
+} catch (KafkaException e) {
+     producer.abortTransaction();
+}
+```
+
+事务的更多内容，后续讲解（
