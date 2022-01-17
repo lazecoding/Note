@@ -2,7 +2,7 @@
 
 基于浏览器的 WebSocket 客户端。
 
-源码稳健地址：[WebSocket-Client.html](https://github.com/lazecoding/Note/blob/main/note/sourcecode/tool/WebSocket-Client.html)
+源码文件地址：[WebSocket-Client.html](https://github.com/lazecoding/Note/blob/main/note/sourcecode/tool/WebSocket-Client.html)
 
 - WebSocket 客户端源码：
 
