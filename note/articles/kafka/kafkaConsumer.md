@@ -16,6 +16,12 @@
       - [多个消费线程同时消费一个分区](#多个消费线程同时消费一个分区)
       - [单个消费者配合多线程的处理模块](#单个消费者配合多线程的处理模块)
     - [消费者参数](#消费者参数)
+    - [消费者分区分配规则](#消费者分区分配规则)
+      - [Range](#Range) 
+      - [RoundRobin](#RoundRobin)
+        - [消费者订阅的主题相同时](#消费者订阅的主题相同时)
+        - [消费者订阅的主题不同时](#消费者订阅的主题不同时)
+      - [Sticky](#Sticky)
 
 与生产者对应的是消费者，应用程序可以通过 KafkaConsumer 来订阅主题，并从订阅的主题中拉取消息。
 
@@ -402,7 +408,6 @@ java.util.ConcurrentModificationException: KafkaConsumer is not safe for multi-t
 KafkaConsumer 非线程安全并不意味着我们在消费消息的时候只能以单线程的方式运行。如果生产者发送消息的速度大于消费者处理消息的速度，那么就会有越来越多的消息得不到及时的处理，造成一定的时延。
 除此之外，kafka 中存在消息保留机制，有些消息有可能在被消费之前就被清理了，从而造成消息的丢失。我们可以通过多线程的方式实现消息消费，多线程的目的就是提高整体的消费能力。
 
-
 #### 一个消费线程对应一个 KafkaConsumer 实例
 
 多线程的实现方式有多种，第一种也是最常见的方式：线程封闭，即为每个线程实例化一个 KafkaConsumer 对象，启动多个消费线程。
@@ -648,3 +653,225 @@ RoundRobin 策略会给所有消费者分配相同数量的分区(或最多就�
 
 Socket 在读写数据时用到的 TCP 缓冲区也可以设置大小。如果它们被设为 -1，就使用操作系统的默认值。如果生产者或消费者与 broker 处于不同的数据中心内，可以适当增大这些值，
 因为跨数据中心的网络一般都有比较高的延迟和比较低的带宽。
+
+
+### 消费者分区分配规则
+
+Kafka 有两个默认的分配策略：Range、RoundRobin 和 Sticky。顾名思义：Range 是范围，RoundRobin 是轮询，Sticky 是粘性？
+
+我们可以通过设置 `partition.assignment.strategy` 来选择分区策略。默认使用的是 `org. apache.kafka.clients.consumer.RangeAssignor`，这个类实现了 Range 策略，
+也可以把它改成 `org.apache.kafka.clients.consumer.RoundRobinAssignor` 和 `org.apache.kafka.clients.consumer.StickyAssignor`，当然我们还可以使用自定义策略，在这种情况下 ，`partition.assignment.strategy` 属性的值就是自定义类的名字。
+
+当出现以下几种情况时，kafka 会进行一次分区分配操作:
+
+- 同一个 Consumer Group 内新增了消费者。
+- 消费者离开当前所属的 Consumer Group，比如主动停机或者宕机。
+- topic 新增了分区（也就是分区数量发生了变化）。
+
+#### Range
+
+Range 策略是针对 topic 而言的，在进行分区分配时，为了尽可能保证所有 Consumer 均匀的消费分区，会对同一个 topic 中的 partition 按照序号排序，并对 Consumer 按照字典顺序排序。
+然后为每个 Consumer 划分固定的分区范围，如果不够平均分配，那么排序靠前的消费者会被多分配分区。具体就是将 partition 的个数除于 Consumer 线程数来决定每个 Consumer 线程消费几个分区。
+如果除不尽，那么前面几个消费者线程将会多分配分区。
+
+通过下面公式更直观：
+
+> 假设n = 分区数 / 消费者数量，m = 分区数 % 消费者线程数量，那么前m个消费者每个分配n+1个分区，后面的（消费者线程数量 - m）个消费者每个分配n个分区。
+
+RangeAssignor 源码：
+
+```java
+
+/**
+ * <p>The range assignor works on a per-topic basis. For each topic, we lay out the available partitions in numeric order
+ * and the consumers in lexicographic order. We then divide the number of partitions by the total number of
+ * consumers to determine the number of partitions to assign to each consumer. If it does not evenly
+ * divide, then the first few consumers will have one extra partition.
+ *
+ * <p>For example, suppose there are two consumers <code>C0</code> and <code>C1</code>, two topics <code>t0</code> and
+ * <code>t1</code>, and each topic has 3 partitions, resulting in partitions <code>t0p0</code>, <code>t0p1</code>,
+ * <code>t0p2</code>, <code>t1p0</code>, <code>t1p1</code>, and <code>t1p2</code>.
+ *
+ * <p>The assignment will be:
+ * <ul>
+ * <li><code>C0: [t0p0, t0p1, t1p0, t1p1]</code></li>
+ * <li><code>C1: [t0p2, t1p2]</code></li>
+ * </ul>
+ */
+public class RangeAssignor extends AbstractPartitionAssignor {
+
+    @Override
+    public String name() {
+        return "range";
+    }
+
+    private Map<String, List<String>> consumersPerTopic(Map<String, Subscription> consumerMetadata) {
+        Map<String, List<String>> res = new HashMap<>();
+        for (Map.Entry<String, Subscription> subscriptionEntry : consumerMetadata.entrySet()) {
+            String consumerId = subscriptionEntry.getKey();
+            for (String topic : subscriptionEntry.getValue().topics())
+                put(res, topic, consumerId);
+        }
+        return res;
+    }
+
+    @Override
+    public Map<String, List<TopicPartition>> assign(Map<String, Integer> partitionsPerTopic,
+                                                    Map<String, Subscription> subscriptions) {
+        Map<String, List<String>> consumersPerTopic = consumersPerTopic(subscriptions);
+        Map<String, List<TopicPartition>> assignment = new HashMap<>();
+        for (String memberId : subscriptions.keySet())
+            assignment.put(memberId, new ArrayList<>());
+
+        for (Map.Entry<String, List<String>> topicEntry : consumersPerTopic.entrySet()) {
+            String topic = topicEntry.getKey();
+            List<String> consumersForTopic = topicEntry.getValue();
+
+            Integer numPartitionsForTopic = partitionsPerTopic.get(topic);
+            if (numPartitionsForTopic == null)
+                continue;
+
+            Collections.sort(consumersForTopic);
+
+            int numPartitionsPerConsumer = numPartitionsForTopic / consumersForTopic.size();
+            int consumersWithExtraPartition = numPartitionsForTopic % consumersForTopic.size();
+
+            List<TopicPartition> partitions = AbstractPartitionAssignor.partitions(topic, numPartitionsForTopic);
+            for (int i = 0, n = consumersForTopic.size(); i < n; i++) {
+                int start = numPartitionsPerConsumer * i + Math.min(i, consumersWithExtraPartition);
+                int length = numPartitionsPerConsumer + (i + 1 > consumersWithExtraPartition ? 0 : 1);
+                assignment.get(consumersForTopic.get(i)).addAll(partitions.subList(start, start + length));
+            }
+        }
+        return assignment;
+    }
+
+}
+```
+
+例如，假设有两个消费者 C0 和 C1，两个主题 t0 和 t1，每个主题有 3 个分区，导致分区 t0p0、t0p1、t0p2、t1p0、t1p1 和 t1p2。
+
+分配结果可能是：
+
+| C0: [t0p0, t0p1, t1p0, t1p1]  |
+| ----------------------------- |
+| C1: [t0p2, t1p2]              |
+
+可以明显的看到这样的分配并不均匀，如果将类似的情形扩大，有可能会出现部分消费者过载的情况，这就是 Range 分区策略的一个很明显的弊端。
+
+#### RoundRobin
+
+RoundRobin 策略的工作原理：RoundRobinAssignor 会列出所有可用分区和消费者，以轮询的方式给消费者分配分区。
+
+RoundRobinAssignor 源码：
+
+```java
+/**
+ * The round robin assignor lays out all the available partitions and all the available consumers. It
+ * then proceeds to do a round robin assignment from partition to consumer. If the subscriptions of all consumer
+ * instances are identical, then the partitions will be uniformly distributed. (i.e., the partition ownership counts
+ * will be within a delta of exactly one across all consumers.)
+ *
+ * For example, suppose there are two consumers C0 and C1, two topics t0 and t1, and each topic has 3 partitions,
+ * resulting in partitions t0p0, t0p1, t0p2, t1p0, t1p1, and t1p2.
+ *
+ * The assignment will be:
+ * C0: [t0p0, t0p2, t1p1]
+ * C1: [t0p1, t1p0, t1p2]
+ *
+ * When subscriptions differ across consumer instances, the assignment process still considers each
+ * consumer instance in round robin fashion but skips over an instance if it is not subscribed to
+ * the topic. Unlike the case when subscriptions are identical, this can result in imbalanced
+ * assignments. For example, we have three consumers C0, C1, C2, and three topics t0, t1, t2,
+ * with 1, 2, and 3 partitions, respectively. Therefore, the partitions are t0p0, t1p0, t1p1, t2p0,
+ * t2p1, t2p2. C0 is subscribed to t0; C1 is subscribed to t0, t1; and C2 is subscribed to t0, t1, t2.
+ *
+ * That assignment will be:
+ * C0: [t0p0]
+ * C1: [t1p0]
+ * C2: [t1p1, t2p0, t2p1, t2p2]
+ */
+public class RoundRobinAssignor extends AbstractPartitionAssignor {
+
+    @Override
+    public Map<String, List<TopicPartition>> assign(Map<String, Integer> partitionsPerTopic,
+                                                    Map<String, Subscription> subscriptions) {
+        Map<String, List<TopicPartition>> assignment = new HashMap<>();
+        for (String memberId : subscriptions.keySet())
+            assignment.put(memberId, new ArrayList<>());
+
+        CircularIterator<String> assigner = new CircularIterator<>(Utils.sorted(subscriptions.keySet()));
+        for (TopicPartition partition : allPartitionsSorted(partitionsPerTopic, subscriptions)) {
+            final String topic = partition.topic();
+            while (!subscriptions.get(assigner.peek()).topics().contains(topic))
+                assigner.next();
+            assignment.get(assigner.next()).add(partition);
+        }
+        return assignment;
+    }
+
+    public List<TopicPartition> allPartitionsSorted(Map<String, Integer> partitionsPerTopic,
+                                                    Map<String, Subscription> subscriptions) {
+        SortedSet<String> topics = new TreeSet<>();
+        for (Subscription subscription : subscriptions.values())
+            topics.addAll(subscription.topics());
+
+        List<TopicPartition> allPartitions = new ArrayList<>();
+        for (String topic : topics) {
+            Integer numPartitionsForTopic = partitionsPerTopic.get(topic);
+            if (numPartitionsForTopic != null)
+                allPartitions.addAll(AbstractPartitionAssignor.partitions(topic, numPartitionsForTopic));
+        }
+        return allPartitions;
+    }
+
+    @Override
+    public String name() {
+        return "roundrobin";
+    }
+
+}
+```
+
+使用 RoundRobin 策略一般满足以下条件：
+
+- 同一个 Consumer Group 里面的所有 Consumer 的 num.streams 必须相等。
+- 每个 Consumer 订阅的 topic 必须相同。
+
+##### 消费者订阅的主题相同时
+
+当 Consumer Group 里面的所有 Consumer 订阅相同时，分配可以均匀分配，最多差异 1 个。
+
+假设有两个消费者 C0 和 C1，两个主题 t0 和 t1，每个主题有 3 个分区，导致分区 t0p0、t0p1、t0p2、t1p0、t1p1 和 t1p2。
+
+分配结果可能是：
+
+| C0: [t0p0, t0p2, t1p1]  |
+| ----------------------- |
+| C1: [t0p1, t1p0, t1p2]  |
+
+##### 消费者订阅的主题不同时
+
+当 Consumer Group 里面的 Consumer 订阅存在差异，分配过程仍然以轮询方式考虑每个使用者实例，但如果某个实例没有订阅该主题，则会跳过该实例。
+
+例如，我们有三个消费者 C0、C1、C2 和三个主题 t0、t1、t2，分别有 1、2 和 3 个分区。因此，分区为 t0p0、t1p0、t1p1、t2p0、t2p1、t2p2。
+`C0 订阅了 t0`;`C1 订阅了 t0、t1`;`C2 订阅了 t0、t1、t2`。
+
+分配结果可能是：
+
+| C0: [t0p0]                    |
+| ----------------------------- |
+| C1: [t1p0]                    |
+| C2: [t1p1, t2p0, t2p1, t2p2]  |
+
+#### Sticky
+
+Sticky 有两个目的。
+
+- 首先，`它保证分配尽可能平衡`，这意味着:分配给消费者的主题分区的数量最多相差一个；或每个消费者的主题分区比其他消费者少 2，就不能将这些主题分区转移到它身上。
+- 其次，当发生重新赋值时，`它尽可能多地保留现有的赋值`，即分区的分配尽可能的与上次分配的保持相同。当主题分区从一个消费者转移到另一个消费者时，这有助于节省一些处理开销。
+
+当两者发生冲突时，第一个目标优先于第二个目标。鉴于这两个目标，StickyAssignor 分配策略的具体实现要比 RangeAssignor 和 RoundRobinAssignor 这两种分配策略要复杂得多，
+但从结果上看 StickyAssignor 策略比另外两者分配策略而言显得更加优异。
+
+StickyAssignor 源码太长，自己看去...
