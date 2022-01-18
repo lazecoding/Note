@@ -64,6 +64,7 @@
 ### 工具
 
 - [WebSocket 客户端](https://github.com/lazecoding/Note/blob/main/note/articles/tool/WebSocket-Client.md)
+- [StackUtil](https://github.com/lazecoding/Note/blob/main/note/articles/tool/StackUtil.md)
 
 ### 测试
 
