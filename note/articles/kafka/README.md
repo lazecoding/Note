@@ -5,3 +5,4 @@
 - [生产者](https://github.com/lazecoding/Note/blob/main/note/articles/kafka/kafkaProducer.md)
 - [消费者](https://github.com/lazecoding/Note/blob/main/note/articles/kafka/kafkaConsumer.md)
 - [主题和分区](https://github.com/lazecoding/Note/blob/main/note/articles/kafka/topicAndPartitions.md)
+- [日志存储](https://github.com/lazecoding/Note/blob/main/note/articles/kafka/logStore.md)
