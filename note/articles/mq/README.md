@@ -7,3 +7,4 @@
 
 - [RabbitMQ](https://github.com/lazecoding/Note/blob/main/note/articles/rabbitmq/README.md)
 - [Kafka](https://github.com/lazecoding/Note/blob/main/note/articles/kafka/README.md)
+- [Pulsar](https://github.com/lazecoding/Note/blob/main/note/articles/pulsar/README.md)

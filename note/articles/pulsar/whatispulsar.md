@@ -49,7 +49,7 @@ Pulsar 采用 `发布-订阅` 的设计模式(pub-sub)，在这种模式中，�
 下图为 Pulsar 集群架构：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/Pulsar集群基础架构图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/Pulsar集群基础架构图.png" width="600px">
 </div>
 
 - Producer：生产者，即发送消息的一方。生产者负责创建消息，将其投递到 Pulsar 中。
@@ -149,7 +149,7 @@ BookKeeper 的日志文件包含事务日志。在更新到 ledger 之前，book
 下图展示了分区的生产、消费逻辑：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/主题分区的生产消费模型.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/主题分区的生产消费模型.png" width="400px">
 </div>
 
 Topic1 有 5 个分区(P0 到 P4)，划分在 3 个 broker 上。因为分区多于 broker 数量，其中有两个 broker 要处理两个分区。第三个 broker 则只处理一个。（再次强调，分区的分布是 Pulsar 自动处理的）。
@@ -175,7 +175,7 @@ Topic1 有 5 个分区(P0 到 P4)，划分在 3 个 broker 上。因为分区多
 订阅是命名好的配置规则，指导消息如何投递给消费者。Pulsar 中有四种订阅模式: 独占、共享、灾备和 key 共享。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/四种订阅模式总览.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/四种订阅模式总览.png" width="400px">
 </div>
 
 ##### 顺序保证
@@ -223,5 +223,5 @@ Pulsar 有两个特性，可以覆盖上面的默认行为：
 - 消息过期让你可以给未被确认的消息设置存活时长（TTL）。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/消息保留和过期示意图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/消息保留和过期示意图.png" width="600px">
 </div>
