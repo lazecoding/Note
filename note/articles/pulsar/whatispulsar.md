@@ -175,7 +175,7 @@ Topic1 有 5 个分区(P0 到 P4)，划分在 3 个 broker 上。因为分区多
 订阅是命名好的配置规则，指导消息如何投递给消费者。Pulsar 中有四种订阅模式: 独占、共享、灾备和 key 共享。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/四种订阅模式总览.png" width="400px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/四种订阅模式总览.png" width="600px">
 </div>
 
 ##### 顺序保证
