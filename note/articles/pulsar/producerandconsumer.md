@@ -123,7 +123,7 @@ Consumer 向 broker 发送消息流获取申请（flow permit request）以获�
 
 #### 订阅模式
 
-订阅是命名好的配置规则，指导消息如何投递给消费者。Pulsar 中有四种订阅模式: 独占、灾备、共享和 key 共享。-`
+订阅是命名好的配置规则，指导消息如何投递给消费者。Pulsar 中有四种订阅模式: 独占、灾备、共享和 key 共享。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/四种订阅模式总览.png" width="600px">
