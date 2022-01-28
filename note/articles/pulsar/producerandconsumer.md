@@ -12,6 +12,10 @@
     - [消费者](#消费者)
       - [接收模式](#接收模式)
       - [订阅模式](#订阅模式)
+        - [Exclusive](#Exclusive)
+        - [Failover](#Failover)
+        - [Shared](#Shared)
+        - [Key_Shared](#Key_Shared)
       - [消息确认](#消息确认)
 
 Pulsar 采用 `发布-订阅` 的设计模式(pub-sub)，在这种模式中，生产者向主题发布消息；消费者 订阅这些主题，处理传入的消息，并在处理完成后向 broker 发送确认。消息一旦创建订阅，即使 consumer 断开连接，Pulsar 仍然可以保存所有消息。
@@ -131,14 +135,46 @@ Consumer 向 broker 发送消息流获取申请（flow permit request）以获�
 
 ##### Exclusive
 
+Exclusive（独占）模式中，只允许单个消费者订阅某一个主题，如果多个使用者使用相同的订阅订阅一个主题，则会发生错误。
+
+> Exclusive模式为默认订阅模式。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/Exclusive模式.png" width="600px">
+</div>
 
 ##### Failover
 
+Failover（灾备）多模式中，允许多个使用者可以附加到相同的订阅。主消费者会消费非分区主题或者分区主题中的每个分区的消息。当 master 消费者断开链接，
+所有（非确认的和后续的）消息都被传递给线上的下一个使用者。
+
+对于分区主题来说，broker 将按照消费者的优先级和消费者名称的词汇表顺序对消费者进行排序，然后试图将主题均匀的分配给优先级最高的消费者。
+
+对于非分区主题来说，broker 会根据消费者订阅非分区主题的顺序选择消费者。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/Failover模式.png" width="600px">
+</div>
 
 ##### Shared
 
+Shared（共享）模式中，多个使用者可以附加到相同的订阅。消息通过轮询机制分发给不同的消费者，并且每个消息仅会被分发给一个消费者。
+当消费者断开连接，所有被发送给他，但没有被确认的消息将被重新安排，分发给其它存活的消费者。
+
+> 当使用 Shared 模型时，不保证消息排序，不能用 Shared 类型来使用累积确认。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/Shared模式.png" width="600px">
+</div>
 
 ##### Key_Shared
+
+在 Key_Shared（key 共享）模式中，多个使用者可以附加到相同的订阅。消息在分发中跨消费者传递，具有相同键或相同排序键的消息只传递给一个消费者。
+无论消息被重新传递多少次，它都将被传递到相同的使用者。当消费者连接或断开时，将导致服务消费者更改消息的某些关键字。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/Key_Shared模式.png" width="600px">
+</div>
 
 #### 消息确认
 
