@@ -65,12 +65,12 @@ Pulsar 采用 `发布-订阅` 的设计模式(pub-sub)，在这种模式中，�
 Pulsar 的 broker 是一个无状态组件, 主要负责运行另外的两个组件:
 
 - 一个 HTTP 服务器，它为生产者和消费者的管理任务和主题查找公开一个 REST API。生产者连接到代理来发布消息，消费者连接到代理来消费消息。
-- 一个调度分发器, 它是异步的TCP服务器，通过自定义 二进制协议应用于所有相关的数据传输。
+- 一个调度分发器, 它是异步的 TCP 服务器，通过自定义 二进制协议应用于所有相关的数据传输。
 
-出于性能的考虑, 通常从 managed ledger (ledger是Pulsar底层存储BookKeeper中的概念，相当于一种记录的集合) 缓存中调度消息, 除非 积压的消息超过这个缓存的大小。
+出于性能的考虑, 通常从 managed ledger (ledger是Pulsar底层存储BookKeeper中的概念，相当于一种记录的集合) 缓存中调度消息, 除非积压的消息超过这个缓存的大小。
 如果积压的消息对于缓存来说太大了, 则 Broker 将开始从 BookKeeper 那里读取 Entries（Entry 同样是 BookKeeper 中的概念，相当于一条记录）。
 
-最后，为了支持全局 Topic 异地复制，Broker 会控制 Replicators 追踪本地发布的条目，并把这些条目用 Java  客户端重新发布到其他区域。
+最后，为了支持全局 Topic 异地复制，Broker 会控制 Replicators 追踪本地发布的条目，并把这些条目用 Java 客户端重新发布到其他区域。
 
 #### 集群
 
@@ -212,7 +212,7 @@ Pulsar 会将消息推送到死信 Topic 中进行保存。
 
 #### 消息保留和过期
 
-Pulsar broker默认如下：
+Pulsar broker 默认如下：
 
 - 立即删除所有已经被 Consumer 确认过的的消息。
 - 以消息 backlog 的形式，持久保存所有的未被确认消息。
