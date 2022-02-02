@@ -111,6 +111,11 @@ Pulsar用 Apache BookKeeper 作为持久化存储。BookKeeper 是一个分布�
 
 除了消息数据，cursors 也会被持久化入 BookKeeper。Cursors 是消费端订阅消费的位置。BookKeeper 让 Pulsar 可以用一种可扩展的方式存储消费位置。
 
+下图展示了 brokers 和 bookies 是如何交互的：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/brokers和bookies交互图.png" width="600px">
+</div>
 ##### Ledgers
 
 Ledger 是一个只追加的数据结构，并且只有一个写入器，这个写入器负责多个 BookKeeper 存储节点（就是 Bookies）的写入。Ledger 的条目会被复制到多个 Bookies。Ledgers 本身有着非常简单的语义：
