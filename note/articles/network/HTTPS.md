@@ -75,7 +75,7 @@ CA 证书其实就是 `公钥 + 签名`，引入可信任的第三方，是终�
 CA 证书很广泛，SSL/TLS 是 CA 证书中的一种。SSL/TLS 建立连接需要 `四次握手`。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/network/SSL和TLS建立连接四次握手.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/network/TLS四次握手.png" width="600px">
 </div>
 
 #### 客户端发出请求
