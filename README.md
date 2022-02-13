@@ -64,6 +64,7 @@
 ### 云原生
 
 - [云原生](https://github.com/lazecoding/Note/blob/main/note/articles/cloudnative/CloudNative.md)
+- [Kubernetes](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/README.md)
 
 ### 工具
 
