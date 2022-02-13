@@ -27,8 +27,8 @@ Kubernetes 借鉴了 Borg 的设计理念，比如 Pod、Service、Label 和单 
 
 Kubernetes 主要由以下几个核心组件组成：
 
-- etcd 保存了整个集群的状态。
-- apiserver 提供了资源操作的唯一入口，并提供认证、授权、访问控制、API 注册和发现等机制。
+- etcd 保存了整个集群的状态。etcd 是一个高度一致的分布式键值存储，它提供了一种可靠的方式来存储需要由分布式系统或机器集群访问的数据。
+- apiserver 提供了资源操作的 `唯一入口`，并提供认证、授权、访问控制、API 注册和发现等机制。
 - controller manager 负责维护集群的状态，比如故障检测、自动扩展、滚动更新等。
 - scheduler 负责资源的调度，按照预定的调度策略将 Pod 调度到相应的机器上。
 - kubelet 负责维护容器的生命周期，同时也负责 Volume（CSI）和网络（CNI）的管理。
