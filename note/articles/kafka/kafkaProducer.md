@@ -189,8 +189,7 @@ public void close(long timeout, TimeUnit timeUnit);
 
 #### 分区器
 
-消息在通过 send() 方法发往 broker 的过程中，有可能需要经过拦截器（Interceptor）、序列化器（Serializer）和分区器（Partitioner）的一系列作用之后才能真正地发往 broker。拦截器一般不是必需的，而序列化时必需的。消息经过序列化之后就需要确定它发往的分区，如果消息 ProducerRecord 中指定了 partition 字段，那么就不需要分区器的作用，因为 partition 代表的就是所要发往的分区号。
-如果消息 ProducerRecord 中没有指定 partition 字段，那么就需要依赖分区器，根据 key 这个字段来计算 partition 的值。分区器的作用就是为消息分配分区。
+消息在通过 send() 方法发往 broker 的过程中，有可能需要经过拦截器（Interceptor）、序列化器（Serializer）和分区器（Partitioner）的一系列作用之后才能真正地发往 broker。拦截器一般不是必需的，而序列化时必需的。消息经过序列化之后就需要确定它发往的分区，如果消息 ProducerRecord 中指定了 partition 字段，那么就不需要分区器的作用，因为 partition 代表的就是所要发往的分区号。如果消息 ProducerRecord 中没有指定 partition 字段，那么就需要依赖分区器，根据 key 这个字段来计算 partition 的值。分区器的作用就是为消息分配分区。
 
 Kafka 中提供的默认分区器是 `org.apache.kafka.clients.producer.internals.DefaultPartitioner`，它实现了 `org.apache.kafka.clients.producer.Partitioner` 接口，这个接口定义了两个方法：
 
@@ -204,8 +203,7 @@ void close();
 
 拦截器（Interceptor）是早在 Kafka  0.10.0.0 中就已经引入的一个功能，Kafka一共有两种拦截器：生产者拦截器和消费者拦截器。
 
-生产者拦截器既可以用来在消息发送钱做一些准备工作，比如按照某个规则过滤不符合要求的消息、修改消息的内容等，也可以用来在发送回调逻辑钱做一些定制化的需求，比如统计类工作。
-生产者拦截器的使用也很方便，主要是自定义实现 `org.apache.kafka.clients.producer.ProducerInterceptor` 接口。ProducerInterceptor 接口中包含三个方法：
+生产者拦截器既可以用来在消息发送钱做一些准备工作，比如按照某个规则过滤不符合要求的消息、修改消息的内容等，也可以用来在发送回调逻辑钱做一些定制化的需求，比如统计类工作。生产者拦截器的使用也很方便，主要是自定义实现 `org.apache.kafka.clients.producer.ProducerInterceptor` 接口。ProducerInterceptor 接口中包含三个方法：
 
 ```java
 ProducerRecord<K, V> onSend(ProducerRecord<K, V> var1);
@@ -227,32 +225,18 @@ KafkaProducer 在将消息序列化和计算分区之前会调用生产者拦截
     <img src="https://github.com/lazecoding/Note/blob/main/images/kafka/生产者客户端的整体架构.png" width="600px">
 </div>
 
-整个生产者客户端由两个线程协调运行，这两个线程分别为主线程和 Sender 线程（发送线程）。在主线程中由 KafkaProducer 创建线程，
-然后通过可能的拦截器、序列化器和分区器的作用之后缓存到消息累加器（RecordAccumulator，也称为消息收集器）中。Sender线程负责从 RecordAccumulator 中获取消息并将其发送到 Kafka 中。
+整个生产者客户端由两个线程协调运行，这两个线程分别为主线程和 Sender 线程（发送线程）。在主线程中由 KafkaProducer 创建线程，然后通过可能的拦截器、序列化器和分区器的作用之后缓存到消息累加器（RecordAccumulator，也称为消息收集器）中。Sender线程负责从 RecordAccumulator 中获取消息并将其发送到 Kafka 中。
 
-RecordAccumulator 主要用来缓存消息以便 Sender 线程可以批量发送，进而减少网络传输的资源消耗以提升性能。RecordAccumulator 缓存的大小通过生产者客户端参数 `buffer.memory` 配置，
-默认值为 33554432B，即 32MB。如果生产者发送消息的速度超过发送到服务器的速度，则会导致生产者空间不足，这个时候 KafkaProducer 的 send() 方法调用要么被阻塞，
+RecordAccumulator 主要用来缓存消息以便 Sender 线程可以批量发送，进而减少网络传输的资源消耗以提升性能。RecordAccumulator 缓存的大小通过生产者客户端参数 `buffer.memory` 配置，默认值为 33554432B，即 32MB。如果生产者发送消息的速度超过发送到服务器的速度，则会导致生产者空间不足，这个时候 KafkaProducer 的 send() 方法调用要么被阻塞，
 要么抛出异常，这个取决于参数 `max.block.ms` 的配置，此参数的默认值为 60000，即 60 秒。
 
-主线程中发送过来的消息都会被追加到 RecordAccumulator 的某个双端队列（Deque）中，在 RecordAccumulator 的内部为每个分区都维护了一个双端队列，
-队列中的内容就是 ProducerBatch，即 Depue<ProducerBatch>。消息写入缓存时，追加到双端队列的尾部；Sender 读取消息时，从双端队列的头部读取。
-注意 ProducerBatch 不是 ProducerRecord，ProducerBatch 中可以包含一至多个 ProducerRecord。通俗地说，ProducerRecord 是生产者中创建的消息，而 ProducerBatch 是一个消息批次，
-ProducerRecord 会被包含在 ProducerBatch 中，这样可以使字节的使用更加紧凑。与此同时，将较小的 ProducerRecord 拼凑成一个较大的 ProducerBatch，也可以减少网络请求的慈湖以提升整体的吞吐量。
-ProducerBatch 和消息的具体格式有关。如果生产者客户端需要向很多分区发送消息，则可以将 `buffer.memory` 参数适当调大以增加整体的吞吐量。
+主线程中发送过来的消息都会被追加到 RecordAccumulator 的某个双端队列（Deque）中，在 RecordAccumulator 的内部为每个分区都维护了一个双端队列，队列中的内容就是 ProducerBatch，即 Depue<ProducerBatch>。消息写入缓存时，追加到双端队列的尾部；Sender 读取消息时，从双端队列的头部读取。注意 ProducerBatch 不是 ProducerRecord，ProducerBatch 中可以包含一至多个 ProducerRecord。通俗地说，ProducerRecord 是生产者中创建的消息，而 ProducerBatch 是一个消息批次，ProducerRecord 会被包含在 ProducerBatch 中，这样可以使字节的使用更加紧凑。与此同时，将较小的 ProducerRecord 拼凑成一个较大的 ProducerBatch，也可以减少网络请求的慈湖以提升整体的吞吐量。ProducerBatch 和消息的具体格式有关。如果生产者客户端需要向很多分区发送消息，则可以将 `buffer.memory` 参数适当调大以增加整体的吞吐量。
 
-RecordAccumulator 的内部还有一个 BufferPool，它用来复用 ByteBuffer，以保证缓存的高效利用。不过 BufferPool 只针对特定大小的 ByteBuffer 进行管理，
-而其他大小的 ByteBuffer 不会缓存进 BufferPool 中，这个特定的大小由 `batch.size` 参数来指定，默认值为 16384B，即 16KB。我们可以适当地调大 `batch.size` 参数以便多缓存一些消息。
+RecordAccumulator 的内部还有一个 BufferPool，它用来复用 ByteBuffer，以保证缓存的高效利用。不过 BufferPool 只针对特定大小的 ByteBuffer 进行管理，而其他大小的 ByteBuffer 不会缓存进 BufferPool 中，这个特定的大小由 `batch.size` 参数来指定，默认值为 16384B，即 16KB。我们可以适当地调大 `batch.size` 参数以便多缓存一些消息。
 
-Sender 从 RecordAccumulator 中获取缓存的消息之后，会进一步将原本<分区, Deque< ProducerBatch>> 的保存形式转变成 <Node, List< ProducerBatch> 的形式，
-其中 Node 表示 Kafka 集群的 broker 节点。对于网络连接来说，生产者客户端是与具体的 broker 节点建立的连接，也就是向具体的 broker 节点发送消息，而并不关心消息属于哪一个分区；
-而对于 KafkaProducer 的应用逻辑而言，我们只关注向哪个分区中发送哪些消息，所以在这里需要做一个应用逻辑层面到网络 I/O 层面的转换。
+Sender 从 RecordAccumulator 中获取缓存的消息之后，会进一步将原本<分区, Deque< ProducerBatch>> 的保存形式转变成 <Node, List< ProducerBatch> 的形式，其中 Node 表示 Kafka 集群的 broker 节点。对于网络连接来说，生产者客户端是与具体的 broker 节点建立的连接，也就是向具体的 broker 节点发送消息，而并不关心消息属于哪一个分区；而对于 KafkaProducer 的应用逻辑而言，我们只关注向哪个分区中发送哪些消息，所以在这里需要做一个应用逻辑层面到网络 I/O 层面的转换。
 
-请求在从 Sender 线程发往 Kafka 之前还会保存到 InFlightRequests 中，保存对象的具体形式为 Map<NodeId, Deque>，
-它的主要作用是缓存了已经发出去但还没有收到响应的请求（NodeId 是一个 String 类型，表示节点的 id 编号）。与此同时，InFlightRequests 还提供了许多管理类的方法，
-并且通过配置参数还可以限制每个连接（也就是客户端与 Node 之间的连接）最多缓存的请求数。这个配置参数为 `max.in.flight.requests.per.connection`，默认值为 5，
-即每个连接最多只能缓存 5 个未响应的请求，超过该数值之后就不能再向这个连接发送更多的请求了，除非有缓存的请求收到了响应（Response）。
-通过比较 Deque<Request> 的 size 与这个参数的大小来判断对应的Node中是否已经堆积了很多未响应的消息，如果真是如此，那么说明这个 Node 节点负载较大或网络连接有问题，
-再继续向其发送请求会增加请求超时的可能。
+请求在从 Sender 线程发往 Kafka 之前还会保存到 InFlightRequests 中，保存对象的具体形式为 Map<NodeId, Deque>，它的主要作用是缓存了已经发出去但还没有收到响应的请求（NodeId 是一个 String 类型，表示节点的 id 编号）。与此同时，InFlightRequests 还提供了许多管理类的方法，并且通过配置参数还可以限制每个连接（也就是客户端与 Node 之间的连接）最多缓存的请求数。这个配置参数为 `max.in.flight.requests.per.connection`，默认值为 5，即每个连接最多只能缓存 5 个未响应的请求，超过该数值之后就不能再向这个连接发送更多的请求了，除非有缓存的请求收到了响应（Response）。通过比较 Deque<Request> 的 size 与这个参数的大小来判断对应的Node中是否已经堆积了很多未响应的消息，如果真是如此，那么说明这个 Node 节点负载较大或网络连接有问题，再继续向其发送请求会增加请求超时的可能。
 
 InFlightRequests 还可以获得 leastLoadedNode，即所有 Node 中负载最小的那一个。这里的负载最小是通过每个 Node 在 InFlightRequests 中还未确认的请求决定的，未确认的请求越多则认为负载越大。
 
@@ -346,8 +330,7 @@ Kafka 提供了多种消息保障机制。
 
 #### ACK 机制
 
-Kafka 像大多数消息中间件一样，提供了 ACK 机制，通过 acks 参数控制。
-acks 是生产者客户端中的一个非常重要的参数，它用来指定分区中必须要有多少个副本收到这条消息，之后生产者才会认为这条消息是成功写入的。它涉及消息的可靠性和吞吐量之间的权衡。
+Kafka 像大多数消息中间件一样，提供了 ACK 机制，通过 acks 参数控制。acks 是生产者客户端中的一个非常重要的参数，它用来指定分区中必须要有多少个副本收到这条消息，之后生产者才会认为这条消息是成功写入的。它涉及消息的可靠性和吞吐量之间的权衡。
 
 acks 参数有三种类型的值（都是字符串类型）。
 
@@ -359,11 +342,9 @@ acks 参数有三种类型的值（都是字符串类型）。
 
 为了保证消息的可靠性，我们一个保证消息送入且只送入一次主题分区中。
 
-Kafka 0.11.0.0 版本引入了幂等语义。一个幂等性的操作就是一种被执行多次造成的影响和只执行一次造成的影响一样的操作。如果出现导致生产者重试的错误，同样的消息，仍由同样的生产者发送多次，
-将只被写到 Kafka broker 的日志中一次。
+Kafka 0.11.0.0 版本引入了幂等语义。一个幂等性的操作就是一种被执行多次造成的影响和只执行一次造成的影响一样的操作。如果出现导致生产者重试的错误，同样的消息，仍由同样的生产者发送多次，将只被写到 Kafka broker 的日志中一次。
 
-对于单个分区，幂等生产者不会因为生产者或 broker 故障而产生多条重复消息。想要开启这个特性，获得每个分区内的精确一次语义，也就是说没有重复，没有丢失，并且有序的语义，
-只需要 producer 配置 `enable.idempotence=true`。
+对于单个分区，幂等生产者不会因为生产者或 broker 故障而产生多条重复消息。想要开启这个特性，获得每个分区内的精确一次语义，也就是说没有重复，没有丢失，并且有序的语义，只需要 producer 配置 `enable.idempotence=true`。
 
 当我们启用 `enable.idempotence=true`，`retries` 将默认为 Integer.MAX_VALUE，`acks` 将默认为 "all"。
 
@@ -376,9 +357,7 @@ Kafka 0.11.0.0 版本引入了幂等语义。一个幂等性的操作就是一�
 
 Kafka可能存在多个生产者，会同时产生消息，但对 Kafka 来说，只需要保证每个生产者内部的消息幂等就可以了，所有引入了 PID 来标识不同的生产者。
 
-Kafka 通过为每条消息增加一个 Sequence Numbler，通过 Sequence Numbler 来区分每条消息。每条消息对应一个分区，不同的分区产生的消息不可能重复。所有 Sequence Numbler 对应每个分区 Broker 端在缓存中保存了这 Sequence Numbler，
-对于接收的每条消息，如果其序号比 Broker 缓存中序号大于 1 则接受它，否则将其丢弃。这样就可以实现了消息重复提交了。但是，只能保证单个 Producer 对于同一个 <Topic, Partition> 的 Exactly Once 语义。
-不能保证同一个 Producer 一个 topic 不同的 partion 的幂等。
+Kafka 通过为每条消息增加一个 Sequence Numbler，通过 Sequence Numbler 来区分每条消息。每条消息对应一个分区，不同的分区产生的消息不可能重复。所有 Sequence Numbler 对应每个分区 Broker 端在缓存中保存了这 Sequence Numbler，对于接收的每条消息，如果其序号比 Broker 缓存中序号大于 1 则接受它，否则将其丢弃。这样就可以实现了消息重复提交了。但是，只能保证单个 Producer 对于同一个 <Topic, Partition> 的 Exactly Once 语义。不能保证同一个 Producer 一个 topic 不同的 partion 的幂等。
 
 #### 事务
 
@@ -389,8 +368,9 @@ Kafka 通过为每条消息增加一个 Sequence Numbler，通过 Sequence Numbl
 - 和幂等一样，开启 `enable.idempotence = true`。
 - 设置 Producer 端参数 `transctional.id`。
 
-启用事务的 Producer 的代码稍微也有点不一样，需要调一些事务处理的 API。数据的发送需要放在 beginTransaction 和 commitTransaction 之间。Consumer 端的代码也需要加上 `isolation.level`参数，
-用以处理事务提交的数据。示例代码:
+启用事务的 Producer 的代码稍微也有点不一样，需要调一些事务处理的 API。数据的发送需要放在 beginTransaction 和 commitTransaction 之间。Consumer 端的代码也需要加上 `isolation.level`参数，用以处理事务提交的数据。
+
+示例代码:
 
 ```java
 producer.initTransactions();

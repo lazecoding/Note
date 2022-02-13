@@ -21,8 +21,7 @@ Elasticsearch 目前支持 `query_then_fetch` 和 `dfs_query_then_fetch` 两种�
 public static final SearchType [] CURRENTLY_SUPPORTED = {QUERY_THEN_FETCH, DFS_QUERY_THEN_FETCH};
 ```
 
-我们以缺省的搜索方式 `query_then_fetch` 来看：一个搜索请求必须询问索引的所有分片的某个副本来确定它们是否含有匹配的文档。找到所有的匹配文档仅仅完成事情的一半。
-在 Search 接口返回一个 page 结果之前，多分片中的结果必须组合成单个排序列表。 为此，搜索是一个两阶段过程，我们称之为 `query then fetch`。
+我们以缺省的搜索方式 `query_then_fetch` 来看：一个搜索请求必须询问索引的所有分片的某个副本来确定它们是否含有匹配的文档。找到所有的匹配文档仅仅完成事情的一半。在 Search 接口返回一个 page 结果之前，多分片中的结果必须组合成单个排序列表。 为此，搜索是一个两阶段过程，我们称之为 `query then fetch`。
 
 #### query
 
@@ -79,11 +78,9 @@ GET /_search?search_type=dfs_query_then_fetch
 - TF：检索词在该字段出现的频率，出现频率越高，相关性也越高。
 - IDF：每个检索词在索引的所有文档出现的频率，出现频率越高，相关性越低。检索词出现在多数文档中会比出现在少数文档中的权重更低。
 
-但是由于性能原因，Elasticsearch 不会每次都计算索引内所有文档的 IDF，而是每个分片会根据 该分片内的所有文档计算一个本地 IDF。
-在数据量很小的时候，可能会因为不同分片的 IDF 不同导致不同的结果，但当数据较大，局部的 IDF 会被均化，基本不会对结果产生影响。
+但是由于性能原因，Elasticsearch 不会每次都计算索引内所有文档的 IDF，而是每个分片会根据 该分片内的所有文档计算一个本地 IDF。在数据量很小的时候，可能会因为不同分片的 IDF 不同导致不同的结果，但当数据较大，局部的 IDF 会被均化，基本不会对结果产生影响。
 
-和 `query_then_fetch`  相比，`dfs_query_then_fetch` 有 dfs 阶段。dfs 是指分布式频率搜索（Distributed Frequency Search），
-它告诉 Elasticsearch ，先分别获得每个分片本地的 IDF，然后根据结果再计算整个索引的全局 IDF。
+和 `query_then_fetch`  相比，`dfs_query_then_fetch` 有 dfs 阶段。dfs 是指分布式频率搜索（Distributed Frequency Search），它告诉 Elasticsearch ，先分别获得每个分片本地的 IDF，然后根据结果再计算整个索引的全局 IDF。
 
 但是，不要在生产环境上使用 `dfs_query_then_fetch` 。这个是完全没有必要，只要有足够的数据就能保证词频是均匀分布的，没有理由给每个查询额外加上 dfs。
 
@@ -147,8 +144,7 @@ public RestChannelConsumer prepareRequest(final RestRequest request, final NodeC
 }
 ```
 
-`RestSearchAction#prepareRequest` 封装出 searchRequest，调用 search 对应的 TransportAction 实现类来处理请求，即 TransportSearchAction，
-最终调用 `TransportSearchAction#doExecute`。
+`RestSearchAction#prepareRequest` 封装出 searchRequest，调用 search 对应的 TransportAction 实现类来处理请求，即 TransportSearchAction，最终调用 `TransportSearchAction#doExecute`。
 
 - TransportSearchAction#doExecute
 
@@ -430,8 +426,7 @@ public void sendExecuteQuery(Transport.Connection connection, final ShardSearchR
 }
 ```
 
-这里转发的 action 是 QUERY_ACTION_NAME，在 `SearchTransportService#registerRequestHandler` 方法中注册了 QUERY_ACTION_NAME 的处理器，
-它对应的处理方法是 `SearchService#executeQueryPhase`。
+这里转发的 action 是 QUERY_ACTION_NAME，在 `SearchTransportService#registerRequestHandler` 方法中注册了 QUERY_ACTION_NAME 的处理器，它对应的处理方法是 `SearchService#executeQueryPhase`。
 
 - SearchService#executeQueryPhase
 
@@ -519,8 +514,7 @@ public void execute(SearchContext searchContext) throws QueryPhaseExecutionExcep
 }
 ```
 
-这里会继续深入 `execute(searchContext, searchContext.searcher(), searcher::setCheckCancelled);`，
-由 `searcher.search(query, queryCollector);` 调用 lucene 接口，执行真正的查询，最后得到 Doc Id 列表返回给协调节点。
+这里会继续深入 `execute(searchContext, searchContext.searcher(), searcher::setCheckCancelled);`，由 `searcher.search(query, queryCollector);` 调用 lucene 接口，执行真正的查询，最后得到 Doc Id 列表返回给协调节点。
 
 当协调节点收到响应，由 `AbstractSearchAsyncAction#onShardResult` 进行响应处理。
 
@@ -678,8 +672,7 @@ private void innerRun() throws IOException {
 }
 ```
 
-这里会通过 SearchPhaseController.ReducedQueryPhase 对文档进行全局排序，之后获取到的 docIdsToLoad 就是排序后的 Doc Id 列表，
-然后会遍历 docIdsToLoad 逐个调用 `FetchSearchPhase#executeFetch`。
+这里会通过 SearchPhaseController.ReducedQueryPhase 对文档进行全局排序，之后获取到的 docIdsToLoad 就是排序后的 Doc Id 列表，然后会遍历 docIdsToLoad 逐个调用 `FetchSearchPhase#executeFetch`。
 
 - FetchSearchPhase#executeFetch
 

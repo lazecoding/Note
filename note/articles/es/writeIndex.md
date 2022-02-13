@@ -11,8 +11,7 @@ Index 是一组同构 Document 的集合，分布于不同节点上的不同分�
 
 ### RestCreateIndexAction
 
-Netty4HttpRequestHandler 是 ElasticSearch 的网络请求处理器。当客户端发起一个 `PUT /<index>` （创建 Index）请求，由 Netty4HttpRequestHandler 接收，
-交由 RestController 调度对应的 action handler 处理该请求，即 `RestCreateIndexAction`。
+Netty4HttpRequestHandler 是 ElasticSearch 的网络请求处理器。当客户端发起一个 `PUT /<index>` （创建 Index）请求，由 Netty4HttpRequestHandler 接收，交由 RestController 调度对应的 action handler 处理该请求，即 `RestCreateIndexAction`。
 
 - RestCreateIndexAction#prepareRequest
 
@@ -44,8 +43,7 @@ public RestChannelConsumer prepareRequest(final RestRequest request, final NodeC
 }
 ```
 
-`RestCreateIndexAction#prepareRequest` 做处理 action 前准备工作，request 中封装了客户端的 REST 请求，通过解析 request 得到 createIndexRequest，
-最终把 createIndexRequest 作为参数调用 `client.admin().indices().create` 方法执行相关业务。
+`RestCreateIndexAction#prepareRequest` 做处理 action 前准备工作，request 中封装了客户端的 REST 请求，通过解析 request 得到 createIndexRequest，最终把 createIndexRequest 作为参数调用 `client.admin().indices().create` 方法执行相关业务。
 
 - NodeClient#doExecute
 
@@ -93,8 +91,7 @@ private <    Request extends ActionRequest,
 }
 ```
 
-这里行为很简单，actions 是一个 map，以 actions 为键获取值，此处是获取 TransportAction，即 handler。
-这个 actions 是在 `ElasticSearch 启动 > 实例化 Node > 初始化 node client` 时缓存了 action 对应的 handler。
+这里行为很简单，actions 是一个 map，以 actions 为键获取值，此处是获取 TransportAction，即 handler。这个 actions 是在 `ElasticSearch 启动 > 实例化 Node > 初始化 node client` 时缓存了 action 对应的 handler。
 
 CreateIndex 对应的 handler 是 TransportCreateIndexAction。
 

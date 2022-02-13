@@ -21,8 +21,7 @@
       - [负载均衡](#负载均衡)
     - [事件驱动框架执行流程](#事件驱动框架执行流程)
 
-Nginx 是一个事件驱动架构的 Web 服务器，事件驱动架构所要解决的问题是如何收集、管理、分发事件。
-这里所说的事件，主要以网络事件和定时器事件为主，而网络事件中又以 TCP 网络事件为主（Nginx 毕竟是个Web服务器），本章将围绕这两种事件为中心论述。
+Nginx 是一个事件驱动架构的 Web 服务器，事件驱动架构所要解决的问题是如何收集、管理、分发事件。这里所说的事件，主要以网络事件和定时器事件为主，而网络事件中又以 TCP 网络事件为主（Nginx 毕竟是个Web服务器），本章将围绕这两种事件为中心论述。
 
 ### 事件的定义
 
@@ -155,13 +154,11 @@ struct ngx_event_s {
 
 每个事件最核心的部分是 handler 回调方法，它将由每一个事件消费模块实现，以此决定这个事件究竟如何被 "消费"。
 
-作为 Web 服务器，每一个用户请求至少对应着一个 TCP 连接，为了及时处理这个连接，至少需要一个读事件和一个写事件，使得 epoll 可以有效地根据触发的事件调度相应模块读取请求或者发送响应。
-因此，Nginx 中定义了基本的数据结构 ngx_connection_t 来表示连接，这个连接表示是客户端主动发起的、Nginx 服务器被动接受的 TCP 连接，我们可以简单称其为被动连接。
+作为 Web 服务器，每一个用户请求至少对应着一个 TCP 连接，为了及时处理这个连接，至少需要一个读事件和一个写事件，使得 epoll 可以有效地根据触发的事件调度相应模块读取请求或者发送响应。因此，Nginx 中定义了基本的数据结构 ngx_connection_t 来表示连接，这个连接表示是客户端主动发起的、Nginx 服务器被动接受的 TCP 连接，我们可以简单称其为被动连接。
 
 ### ngx_events_module
 
-ngx_events_module 模块是一个核心模块，它定义了一类新模块：事件模块。它的功能如下：定义新的事件类型，并定义每个事件模块都需要实现的 ngx_event_module_t 接口，
-还需要管理这些事件模块生成的配置项结构体，并解析事件类配置项，
+ngx_events_module 模块是一个核心模块，它定义了一类新模块：事件模块。它的功能如下：定义新的事件类型，并定义每个事件模块都需要实现的 ngx_event_module_t 接口，还需要管理这些事件模块生成的配置项结构体，并解析事件类配置项，
 
 ```C
 static ngx_command_t  ngx_events_commands[] = {
@@ -177,8 +174,7 @@ static ngx_command_t  ngx_events_commands[] = {
 };
 ```
 
-ngx_event_core_module 模块是一个事件类型的模块，它在所有事件模块中的顺序是第一位（configure 执行时必须把它放在其他事件模块之前）。
-这就保证了它会先于其他事件模块执行，由此它选择事件驱动机制的任务才可以完成。
+ngx_event_core_module 模块是一个事件类型的模块，它在所有事件模块中的顺序是第一位（configure 执行时必须把它放在其他事件模块之前）。这就保证了它会先于其他事件模块执行，由此它选择事件驱动机制的任务才可以完成。
 
 ```C
 static ngx_command_t  ngx_event_core_commands[] = {
@@ -240,8 +236,7 @@ static ngx_command_t  ngx_event_core_commands[] = {
 
 事件驱动模型有个问题，就是事件什么时候完成，如何告知调用方。
 
-事件轮询 API 就是用来解决这个问题的，这是一种多路复用机制。常见的事件轮询 API 有 select、poll、epoll，它们是操作系统提供给用户线程的 API，用于取代用户线程轮询。
-如果是用户线程轮询就要涉及用户态和内核态的频繁切换，这部分开销是巨大的。
+事件轮询 API 就是用来解决这个问题的，这是一种多路复用机制。常见的事件轮询 API 有 select、poll、epoll，它们是操作系统提供给用户线程的 API，用于取代用户线程轮询。如果是用户线程轮询就要涉及用户态和内核态的频繁切换，这部分开销是巨大的。
 
 #### select
 
@@ -261,8 +256,7 @@ poll 的机制与 select 类似，与 select 在本质上没有多大差别，�
 
 #### epoll
 
-epoll 在 Linux 2.6 内核正式提出，是基于事件驱动的 I/O 方式，相对于 select 来说，epoll 没有描述符个数限制，使用一个文件描述符管理多个描述符，将用户关心的文件描述符的事件存放到内核的一个事件表中，
-这样在用户空间和内核空间的 copy 只需一次。
+epoll 在 Linux 2.6 内核正式提出，是基于事件驱动的 I/O 方式，相对于 select 来说，epoll 没有描述符个数限制，使用一个文件描述符管理多个描述符，将用户关心的文件描述符的事件存放到内核的一个事件表中，这样在用户空间和内核空间的 copy 只需一次。
 
 Linux 提供的 epoll 相关函数如下：
 
@@ -276,10 +270,7 @@ int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout
 - epoll_ctl 函数讲将一个 fd 添加到一个 eventpoll 中，或从中删除，或如果此 fd 已经在 eventpoll 中，可以更改其监控事件。
 - epoll_wait 函数等待 epoll 事件从 epoll 实例中发生（rdllist 中存在或 timeout），并返回事件以及对应文件描述符。
 
-当调用 epoll_create 函数时，内核会创建一个 eventpoll 结构体用于存储使用 epoll_ctl 函数向 epoll 对象中添加进来的事件。这些事件都存储在红黑树中，通过红黑树可以保持稳定高效的查询效率，而且可以高效地识别重复添加地事件。
-所有添加到 epoll 中的事件都会与设备(网卡)驱动程序建立回调关系，当相应的事件发生时会调用这个回调方法，它会将发生的事件添加到 rdllist 链表中。
-调用 epoll_wait 函数检查是否有事件发生时，只需要检查 eventpoll 对象中的 rdllist 链表中是否存在 epitem 元素(每一个事件都对应一个 epitem 结构体)，如果 rdllist 不为空，只需要把这些事件从内核态拷贝到用户态，同时返回事件数量即可。
-因此，epoll 是十分高效地，可以轻松支持起百万级并发。
+当调用 epoll_create 函数时，内核会创建一个 eventpoll 结构体用于存储使用 epoll_ctl 函数向 epoll 对象中添加进来的事件。这些事件都存储在红黑树中，通过红黑树可以保持稳定高效的查询效率，而且可以高效地识别重复添加地事件。所有添加到 epoll 中的事件都会与设备(网卡)驱动程序建立回调关系，当相应的事件发生时会调用这个回调方法，它会将发生的事件添加到 rdllist 链表中。调用 epoll_wait 函数检查是否有事件发生时，只需要检查 eventpoll 对象中的 rdllist 链表中是否存在 epitem 元素(每一个事件都对应一个 epitem 结构体)，如果 rdllist 不为空，只需要把这些事件从内核态拷贝到用户态，同时返回事件数量即可。因此，epoll 是十分高效地，可以轻松支持起百万级并发。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/redis/epoll数据结构示意图.png" width="600px">
@@ -389,6 +380,7 @@ typedef struct {
 #### ngx_epoll_init
 
 ngx_epoll_init 方法它做了 2 件事： 
+
 - 调用 epoll_create 方法创建 epoll 对象。
 - 创建 event_list 数组，用于进行 epoll_wait 调用时传递内核对象。
 
@@ -723,8 +715,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
 
 在实现定时器之前，Nginx 首先设计了一套时间管理方案——缓存时间。Nginx 每个进程独立管理当前时间，它将时间缓存在内存中，这样获取时间不需要每次都调用 gettimeofday，只需要获取内存的几个整型变量即可。
 
-gettimeofday 是 C 库提供的函数（不是系统调用），它封装了内核里的 sys_gettimeofday 系统调用，就是说，归根到底是系统调用。当我们调用 gettimeofday 时，将会向内核发送软中断，然后将陷入内核态，
-这时内核至少要做下列事：处理软中断、保存所有寄存器值、从用户态复制函数参数到内核态、执行、将结果复制到用户态。
+gettimeofday 是 C 库提供的函数（不是系统调用），它封装了内核里的 sys_gettimeofday 系统调用，就是说，归根到底是系统调用。当我们调用 gettimeofday 时，将会向内核发送软中断，然后将陷入内核态，这时内核至少要做下列事：处理软中断、保存所有寄存器值、从用户态复制函数参数到内核态、执行、将结果复制到用户态。
 
 Nginx 每个进程都会独自管理当前时间，ngx_time_t 结构体是缓存时间变量的类型：
 
@@ -752,8 +743,7 @@ ngx_rbtree_t              ngx_event_timer_rbtree;
 static ngx_rbtree_node_t  ngx_event_timer_sentinel;
 ```
 
-这棵红黑树中的每个节点都是 ngx_event_t 事件中的 timer 成员，而 ngx_rbtree_node_t 节点的关键字就是事件的超时时间，以这个超时时间的大小组成了红黑树 ngx_event_timer_rbtree。
-这样，如果需要找出最有可能超时的事件，那么将 ngx_event_timer_rbtree 树中最左边的节点取出来即可。只要用当前时间去比较这个最左边节点的超时时间，就会知道这个事件有没有触发超时，如果还没有触发超时，那么会知道最少还要经过多少毫秒满足超时条件而触发超时。
+这棵红黑树中的每个节点都是 ngx_event_t 事件中的 timer 成员，而 ngx_rbtree_node_t 节点的关键字就是事件的超时时间，以这个超时时间的大小组成了红黑树 ngx_event_timer_rbtree。这样，如果需要找出最有可能超时的事件，那么将 ngx_event_timer_rbtree 树中最左边的节点取出来即可。只要用当前时间去比较这个最左边节点的超时时间，就会知道这个事件有没有触发超时，如果还没有触发超时，那么会知道最少还要经过多少毫秒满足超时条件而触发超时。
 
 定时器核心方法：
 
@@ -774,8 +764,7 @@ ngx_event_timer_init(ngx_log_t *log)
 
 - ngx_event_find_timer
 
-找出红黑树最左面节点，如果改节点的超时事件大于当前事件表明当前没有事件触发定时器，此时返回需要经过多少秒会有定时事件触发；
-如果改节点的超时事件小于或等于当前事件，则返回 0，表示定时器中已经存在需要触发的定时事件。
+找出红黑树最左面节点，如果改节点的超时事件大于当前事件表明当前没有事件触发定时器，此时返回需要经过多少秒会有定时事件触发；如果改节点的超时事件小于或等于当前事件，则返回 0，表示定时器中已经存在需要触发的定时事件。
 
 ```C
 ngx_msec_t
@@ -996,16 +985,13 @@ ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 }
 ```
 
-post 事件队列将事件归类，有限处理 ngx_posted_accept_events 队列，即新连接事件。这样 worker 线程占有 accept_mutex 锁后可以快速处理完新连接事件并释放 accept_mutex 锁，
-这样就大大减少了 accept_mutex 锁的占用时间。
+post 事件队列将事件归类，有限处理 ngx_posted_accept_events 队列，即新连接事件。这样 worker 线程占有 accept_mutex 锁后可以快速处理完新连接事件并释放 accept_mutex 锁，这样就大大减少了 accept_mutex 锁的占用时间。
 
 #### 负载均衡
 
 和 "惊群问题" 一样，只有打开了 accept_mutex 锁才能实现 worker 子进程间的负载均衡。
  
-上面提到，worker 进程在建立新连接时候会初始化全局变量 ngx_accept_disabled，这个是负载均衡的阈值。
-第一次初始化 ngx_accept_disabled 是个负值，是总连接数的 -7/8，随着连接的建立，free_connection_n（空闲连接数）会减小，（connection_n，总链接数不变），ngx_accept_disabled 值逐渐变大。当 ngx_accept_disabled > 0，意味着当前使用的
-连接数达到了总连接数的 7/8，该 worker 进程将不再处理新连接，每次 ngx_process_events_and_timers 调用 ngx_accept_disabled 的值都会 -1，直到 ngx_accept_disabled < 0，即当前使用的连接数小于总连接数的 7/8，该 worker 进程才会尝试调用 ngx_trylock_accept_mutex 处理新连接。
+上面提到，worker 进程在建立新连接时候会初始化全局变量 ngx_accept_disabled，这个是负载均衡的阈值。第一次初始化 ngx_accept_disabled 是个负值，是总连接数的 -7/8，随着连接的建立，free_connection_n（空闲连接数）会减小，（connection_n，总链接数不变），ngx_accept_disabled 值逐渐变大。当 ngx_accept_disabled > 0，意味着当前使用的连接数达到了总连接数的 7/8，该 worker 进程将不再处理新连接，每次 ngx_process_events_and_timers 调用 ngx_accept_disabled 的值都会 -1，直到 ngx_accept_disabled < 0，即当前使用的连接数小于总连接数的 7/8，该 worker 进程才会尝试调用 ngx_trylock_accept_mutex 处理新连接。
 
 下面是 ngx_accept_disabled 初始化和使用源码：
 

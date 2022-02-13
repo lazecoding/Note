@@ -26,11 +26,9 @@
       - [实现思路](#实现思路)
       - [实现代码](#实现代码)
 
-Java NIO（Non-blocking I/O）是从 JDK 1.4 版本开始引入的一个新的 IO API，可以替代标准的 Java IO API。NIO 使用同步非阻塞的方式重写了老的 I/O 了，
-即使我们不显式地使用 NIO 方式来编写代码，也能带来性能和速度的提高。这种提升不仅仅体现在文件读写（File I/O），同时也体现在网络读写（Network I/O）中。
+Java NIO（Non-blocking I/O）是从 JDK 1.4 版本开始引入的一个新的 IO API，可以替代标准的 Java IO API。NIO 使用同步非阻塞的方式重写了老的 I/O 了，即使我们不显式地使用 NIO 方式来编写代码，也能带来性能和速度的提高。这种提升不仅仅体现在文件读写（File I/O），同时也体现在网络读写（Network I/O）中。
 
-NIO 速度的提升来自于使用了更接近操作系统 I/O 执行方式的结构：Channel（通道） 和 Buffer（缓冲区）。我们可以想象一个煤矿：通道就是连接矿层（数据）的矿井，缓冲区是运送煤矿的小车。
-通过小车装煤，再从车里取矿。换句话说，我们不能直接和 Channel 交互; 我们需要与 Buffer 交互并将 Buffer 中的数据发送到 Channel 中；Channel 需要从 Buffer 中提取或放入数据。
+NIO 速度的提升来自于使用了更接近操作系统 I/O 执行方式的结构：Channel（通道） 和 Buffer（缓冲区）。我们可以想象一个煤矿：通道就是连接矿层（数据）的矿井，缓冲区是运送煤矿的小车。通过小车装煤，再从车里取矿。换句话说，我们不能直接和 Channel 交互; 我们需要与 Buffer 交互并将 Buffer 中的数据发送到 Channel 中；Channel 需要从 Buffer 中提取或放入数据。
 
 ### IO 和 NIO
 
@@ -91,8 +89,7 @@ socket.getOutputStream().write(buf);
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/传统IO数据拷贝.png" width="600px">
 </div>
 
-1. java 本身并不具备 IO 读写能力，因此 read 方法调用后，要从 java 程序的**用户态**切换至**内核态**，去调用操作系统的读能力，将数据读入**内核缓冲区**。
-这期间用户线程阻塞，操作系统使用 DMA（Direct Memory Access）来实现文件读，其间也不会使用 CPU。
+1. java 本身并不具备 IO 读写能力，因此 read 方法调用后，要从 java 程序的**用户态**切换至**内核态**，去调用操作系统的读能力，将数据读入**内核缓冲区**。这期间用户线程阻塞，操作系统使用 DMA（Direct Memory Access）来实现文件读，其间也不会使用 CPU。
    > DMA 也可以理解为硬件单元，用来解放 CPU 完成文件 IO。
 3. 从**内核态**切换回**用户态**，将数据从**内核缓冲区**读入**用户缓冲区**（即 byte[] buf），这期间 CPU 会参与拷贝，无法利用 DMA。
 4. 调用 write 方法，这时将数据从**用户缓冲区**（byte[] buf）写入 **socket 缓冲区**，CPU 会参与拷贝。
@@ -155,8 +152,7 @@ socket.getOutputStream().write(buf);
 
 ### Java NIO
 
-Java NIO 系统的核心在于：通道(Channel)和缓冲区(Buffer)。通道表示打开到 IO 设备(例如：文件、套接字)的连接。若需要使用 NIO 系统，
-需要获取用于连接 IO 设备的通道以及用于容纳数据的缓冲区，然后操作缓冲区对数据进行处理。
+Java NIO 系统的核心在于：通道(Channel)和缓冲区(Buffer)。通道表示打开到 IO 设备(例如：文件、套接字)的连接。若需要使用 NIO 系统，需要获取用于连接 IO 设备的通道以及用于容纳数据的缓冲区，然后操作缓冲区对数据进行处理。
 
 简而言之，通道负责传输，缓冲区负责存储。
 
@@ -206,9 +202,7 @@ put() 方法可以将一个数据放入到缓冲区中；进行该操作后，po
 
 flip() 方法会切换对缓冲区的操作模式，由写->读 / 读->写。
 
-进行该操作后：
-如果是`写->读`模式，position = 0 ， limit 指向最后一个元素的下一个位置，capacity不变；
-如果是`读->写`，则恢复为 put() 方法中的值。
+进行该操作后：如果是`写->读`模式，position = 0 ， limit 指向最后一个元素的下一个位置，capacity 不变；如果是`读->写`，则恢复为 put() 方法中的值。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/flip方法.png" width="600px">
@@ -236,8 +230,7 @@ rewind() 方法后，会恢复 position、limit 和 capacity 的值，变为进�
 
 - clear
 
-clear() 方法会将缓冲区中的各个属性恢复为最初的状态，`position = 0, capacity = limit`。
-此时缓冲区的数据依然存在，处于 "被遗忘" 状态，下次进行写操作时会覆盖这些数据。
+clear() 方法会将缓冲区中的各个属性恢复为最初的状态，`position = 0, capacity = limit`。此时缓冲区的数据依然存在，处于 "被遗忘" 状态，下次进行写操作时会覆盖这些数据。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/clear方法.png" width="600px">
@@ -245,13 +238,11 @@ clear() 方法会将缓冲区中的各个属性恢复为最初的状态，`posit
 
 - mark 和 reset
 
-mark()方法会将postion的值保存到mark属性中；
-reset()方法会将position的值改为mark中保存的值。
+mark()方法会将postion的值保存到mark属性中；reset()方法会将position的值改为mark中保存的值。
 
 - compact
 
-compact 会把未读完的数据向前压缩，然后切换到写模式。
-数据前移后，原位置的值并未清零，写时会覆盖之前的值。
+compact 会把未读完的数据向前压缩，然后切换到写模式。数据前移后，原位置的值并未清零，写时会覆盖之前的值。
 
 注意：此方法为 ByteBuffer 的方法，而不是 Buffer 的方法。
 
@@ -261,14 +252,11 @@ compact 会把未读完的数据向前压缩，然后切换到写模式。
 
 - clear 对比 compact
 
-clear 只是对 position、limit、mark 进行重置，而 compact 在对 position 进行设置，以及 limit、mark 进行重置的同时，还涉及到数据在内存中拷贝（会调用 arraycopy）。
-所以 compact 比 clear 更耗性能。但 compact 能保存你未读取的数据，将新数据追加到为读取的数据之后；而 clear 则不行，若你调用了 clear，则未读取的数据就无法再读取到了。
+clear 只是对 position、limit、mark 进行重置，而 compact 在对 position 进行设置，以及 limit、mark 进行重置的同时，还涉及到数据在内存中拷贝（会调用 arraycopy）。所以 compact 比 clear 更耗性能。但 compact 能保存你未读取的数据，将新数据追加到为读取的数据之后；而 clear 则不行，若你调用了 clear，则未读取的数据就无法再读取到了。
 
 ##### ByteBuffer
 
-有且仅有 ByteBuffer（字节缓冲区，保存原始字节的缓冲区）这一类型可直接与通道交互。查看 `java.nio.ByteBuffer` 的 JDK 文档，
-你会发现它是相当基础的：通过初始化某个大小的存储空间，再使用一些方法以原始字节形式或原始数据类型来放置和获取数据。但是我们无法直接存放对象，即使是最基本的 String 类型数据。
-这是一个相当底层的操作，也正因如此，使得它与大多数操作系统的映射更加高效。
+有且仅有 ByteBuffer（字节缓冲区，保存原始字节的缓冲区）这一类型可直接与通道交互。查看 `java.nio.ByteBuffer` 的 JDK 文档，你会发现它是相当基础的：通过初始化某个大小的存储空间，再使用一些方法以原始字节形式或原始数据类型来放置和获取数据。但是我们无法直接存放对象，即使是最基本的 String 类型数据。这是一个相当底层的操作，也正因如此，使得它与大多数操作系统的映射更加高效。
 
 ByteBuffer 类图：
 
@@ -298,8 +286,7 @@ public static ByteBuffer allocate(int capacity) {
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/非直接缓冲区.png" width="600px">
 </div>
 
-通过非直接缓冲区，想要将数据写入到物理磁盘中，或者是从物理磁盘读取数据。都需要经过 JVM 和操作系统，数据在两个地址空间中传输时，会 copy 一份保存在对方的空间中。
-所以费直接缓冲区的读取效率较低。
+通过非直接缓冲区，想要将数据写入到物理磁盘中，或者是从物理磁盘读取数据。都需要经过 JVM 和操作系统，数据在两个地址空间中传输时，会 copy 一份保存在对方的空间中。所以费直接缓冲区的读取效率较低。
 
 - allocateDirect
 
@@ -315,8 +302,7 @@ public static ByteBuffer allocateDirect(int capacity) {
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/直接缓冲区.png" width="600px">
 </div>
 
-直接缓冲区通过在操作系统和 JVM 之间创建物理内存映射文件加快缓冲区数据读/写入物理磁盘的速度。放到物理内存映射文件中的数据就不归应用程序控制了，
-操作系统会自动将物理内存映射文件中的数据写入到物理内存中。
+直接缓冲区通过在操作系统和 JVM 之间创建物理内存映射文件加快缓冲区数据读/写入物理磁盘的速度。放到物理内存映射文件中的数据就不归应用程序控制了，操作系统会自动将物理内存映射文件中的数据写入到物理内存中。
 
 - 向 buffer 写入数据
 
@@ -636,16 +622,14 @@ Channel 由 `java.nio.channels` 包定义的。Channel 表示 IO 源与目标打
 
 ##### 图解
 
-应用程序进行读写操作调用函数时，`底层调用的操作系统提供给用户的读写 API`，调用这些 API 时会生成对应的指令，CPU 则会执行这些指令。在计算机刚出现的那段时间，
-`所有读写请求的指令都有 CPU 去执行`，过多的读写请求会导致 CPU 无法去执行其他命令，从而 CPU 的利用率降低。
+应用程序进行读写操作调用函数时，`底层调用的操作系统提供给用户的读写 API`，调用这些 API 时会生成对应的指令，CPU 则会执行这些指令。在计算机刚出现的那段时间，`所有读写请求的指令都有 CPU 去执行`，过多的读写请求会导致 CPU 无法去执行其他命令，从而 CPU 的利用率降低。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/CPU操作IO.png" width="600px">
 </div>
 
 
-后来，DMA(Direct Memory Access，直接存储器访问)出现了。当 IO 请求传到计算机底层时，`DMA 会向 CPU 请求，让 DMA 去处理这些 IO 操作`，从而可以让 CPU 去执行其他指令。
-DMA 处理 IO 操作时，会请求获取总线的使用权。`当IO请求过多时，会导致大量总线用于处理IO请求，从而降低效率`。
+后来，DMA(Direct Memory Access，直接存储器访问)出现了。当 IO 请求传到计算机底层时，`DMA 会向 CPU 请求，让 DMA 去处理这些 IO 操作`，从而可以让 CPU 去执行其他指令。DMA 处理 IO 操作时，会请求获取总线的使用权。`当IO请求过多时，会导致大量总线用于处理IO请求，从而降低效率`。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/DMA操作IO.png" width="600px">
@@ -684,8 +668,7 @@ Channel 类图：
 
 Selector 是多路复用器选择器，它允许单线程处理多个 Channel。
 
-使用 Selector，首先得向 Selector 注册 Channel，然后调用它的 select()。该方法会一直阻塞，直到某个注册的 Channel 有事件就绪。一旦这个方法返回，线程就可以处理这些事件，
-事件的例子如建立新连接，数据接收等。
+使用 Selector，首先得向 Selector 注册 Channel，然后调用它的 select()。该方法会一直阻塞，直到某个注册的 Channel 有事件就绪。一旦这个方法返回，线程就可以处理这些事件，事件的例子如建立新连接，数据接收等。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/java/nio/Selector模型.png" width="600px">
@@ -714,8 +697,7 @@ Selector selector = Selector.open();
 
 ##### 绑定 Channel 事件
 
-`绑定 Channel 事件`也称之为注册事件，Selector 只关心绑定的事件。
-每个 Channel 向 Selector 注册时,都将会创建一个 SelectionKey，它将 Channel 与 Selector 建立关系,并维护了 Channel 事件.
+`绑定 Channel 事件`也称之为注册事件，Selector 只关心绑定的事件。每个 Channel 向 Selector 注册时,都将会创建一个 SelectionKey，它将 Channel 与 Selector 建立关系,并维护了 Channel 事件.
 
 ```java
 channel.configureBlocking(false);
@@ -888,8 +870,7 @@ AtomicInteger robin = new AtomicInteger(0);
 workers[robin.getAndIncrement()% workers.length].register(socket);
 ```
 
-- `register(SocketChannel socket)` 方法会通过同步队列完成 Boss 线程与 Worker 线程之间的通信，让 SocketChannel 的注册任务被 Worker 线程执行。
-添加任务后需要调用 selector.wakeup() 来唤醒被阻塞的 Selector。
+- `register(SocketChannel socket)` 方法会通过同步队列完成 Boss 线程与 Worker 线程之间的通信，让 SocketChannel 的注册任务被 Worker 线程执行。添加任务后需要调用 selector.wakeup() 来唤醒被阻塞的 Selector。
 
 ```java
 public void register(final SocketChannel socket) throws IOException {

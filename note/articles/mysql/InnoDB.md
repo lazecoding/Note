@@ -11,10 +11,11 @@ InnoDB 存储引擎最早由 Innobase Oy 公司开发，从 MySQL 数据库 5.5.
 </div>
 
 上图简单展示了 InnoDB 存储引擎的体系架构。InnoDB 存储引擎由很多内存块组成一个大的内存池，主要负责如下工作：
+
 - 维护所有进程/线程需要访问的多个内部数据结构。
 - 缓存磁盘上的数据结构方便快速地读取，同时在对磁盘文件的数据修改之前在这里做缓存。
 - 重做日志（redo log）缓冲。
-后台线程主要作用是负责刷新内存池中数据，保证缓冲池的内存缓存的是最近的数据。此外将已修改的数据文件刷新到磁盘文件，同时保证在数据库异常情况 InnoDB 存储引擎能恢复到正常运行状态。
+- 后台线程主要作用是负责刷新内存池中数据，保证缓冲池的内存缓存的是最近的数据。此外将已修改的数据文件刷新到磁盘文件，同时保证在数据库异常情况 InnoDB 存储引擎能恢复到正常运行状态。
   
 ### 后台线程
 
@@ -57,15 +58,14 @@ LRU 列表用来管理已经读取的页，当数据库刚启动时，LRU 列表
 每次写操作会产生脏页，数据库需要将脏页从缓冲池中刷回磁盘。倘若每次修改页都将新页刷回磁盘，这个开销十分大，而且如果热点数据是某几个页，会导致性能很差，同时如果在刷新脏页的时候数据库宕机了，那么数据难以恢复。为了避免这些问题，当前事务数据库往往采用  Write Ahead Log 策略，即当事务提交先写重做日志（redo log），在修改页，即使数据库宕机也可以通过重做日志恢复数据。
 
 通过重做日志，可以实现 ACID 中的持久性，但是如果重做日志不可能无限大，即使是无限大，如果数据库宕机通过重做日志恢复数据耗时会很久，代价很大。因此产生了 Checkpoint （检查点） 机制，目的是：
+
 - 缩短数据库恢复时间
 - 缓冲池不够用时，刷新脏页
 - 重做日志不可以时，刷新脏页
 
-当数据库宕机，不需要重做所有日志，因为 Checkpoint 之前的页都已经刷新回磁盘，数据库只需要对 Checkpoint 之后的重做日志进行恢复。当缓冲池不够用的时候，根据 LRU 算法会溢出最近最少使用的页，若为脏页则强制执行 Checkpoint 刷新脏页。
-当重做日志不可以使用，也必须强制执行 Checkpoint，将缓冲池中的页至少刷新到当前重做日志的位置。重做日志出现不可以的情况是因为当前事务数据库系统对重做日志的设计是循环使用，并不是无限扩大，数据库可以重用已经不在需要的日志部分。
+当数据库宕机，不需要重做所有日志，因为 Checkpoint 之前的页都已经刷新回磁盘，数据库只需要对 Checkpoint 之后的重做日志进行恢复。当缓冲池不够用的时候，根据 LRU 算法会溢出最近最少使用的页，若为脏页则强制执行 Checkpoint 刷新脏页。当重做日志不可以使用，也必须强制执行 Checkpoint，将缓冲池中的页至少刷新到当前重做日志的位置。重做日志出现不可以的情况是因为当前事务数据库系统对重做日志的设计是循环使用，并不是无限扩大，数据库可以重用已经不在需要的日志部分。
 
-InnoDB 存储引擎有两种 Checkpoint,分别是 Sharp CheckPoint 和 Fuzzy CheckPoint。Sharp CheckPoint 发生在数据库关闭时将所以脏页刷回磁盘，但如果数据库运行刷时也使用会影响数据库的可用性，故 InnoDB 存储引擎内部
-使用 Fuzzy CheckPoint 进行脏页刷新，即只刷新一部分脏页。
+InnoDB 存储引擎有两种 Checkpoint,分别是 Sharp CheckPoint 和 Fuzzy CheckPoint。Sharp CheckPoint 发生在数据库关闭时将所以脏页刷回磁盘，但如果数据库运行刷时也使用会影响数据库的可用性，故 InnoDB 存储引擎内部使用 Fuzzy CheckPoint 进行脏页刷新，即只刷新一部分脏页。
 
 Fuzzy CheckPoint 存在以下几种情况：
 
@@ -81,26 +81,27 @@ Fuzzy CheckPoint 存在以下几种情况：
 
 InnoDB 存储引擎主要工作都是由 Master Thread 完成的，随着 InnoDB 版本迭代， Master Thread 也在持续优化。
 
-`InnoDB 1.0.x 版本之前` ：Master Thread 具有最高的线程优先级别，内部有多个循环（loop）组成，主循环（loop），后台循环（backgroup loop），刷新循环（flush loop），暂停循环（suspend loop），Master Thread 会根据数据库状态在各个循环之间切换。Loop 被称为主循环，大多数操作都由它完成，主要分为两大部分操作————每秒一次操作和每 10 秒一次操作。
-所谓的每秒一次和每 10 秒一次其实也是不准确，只是大概保持这个频率，通过 thread sleep 实现，实际上负载很大情况下可能存在延迟。
+`InnoDB 1.0.x 版本之前` ：Master Thread 具有最高的线程优先级别，内部有多个循环（loop）组成，主循环（loop），后台循环（backgroup loop），刷新循环（flush loop），暂停循环（suspend loop），Master Thread 会根据数据库状态在各个循环之间切换。Loop 被称为主循环，大多数操作都由它完成，主要分为两大部分操作————每秒一次操作和每 10 秒一次操作。所谓的每秒一次和每 10 秒一次其实也是不准确，只是大概保持这个频率，通过 thread sleep 实现，实际上负载很大情况下可能存在延迟。
 
 每秒一次操作：
+
 - 日志缓冲刷新到磁盘，即使这个事务还没有提交（总是）；
 - 合并插入缓冲（可能）；
 - 至多刷新 100 个 InnoDB 的缓冲池中的脏页到磁盘（可能）；
 - 如果当前没有用户活动，切换到后台循环（可能）。
 
 每 10 秒一次操作：
+
 - 刷新 100 个脏页到磁盘（可能）；
 - 合并至少 5 个插入缓冲（总是）；
 - 将日志缓冲刷新到磁盘（总是）；
 - 删除无用的 undo 页（总是）；
 - 刷新 100 个或者 10 个脏页到磁盘（总是）。
 
-可以看到，即使事务没有提交，InnoDB 存储引擎也会每秒将重做日志缓冲中内容刷到重做日志文件中，这很好地解释了为什么再大的事务提交时间也很短。
-InnoDB 存储引擎会根据最近数据状态来决定是否执行合并插入缓冲、刷新脏页等操作，如果当前没有用户活动会切换到后台循环。
+可以看到，即使事务没有提交，InnoDB 存储引擎也会每秒将重做日志缓冲中内容刷到重做日志文件中，这很好地解释了为什么再大的事务提交时间也很短。InnoDB 存储引擎会根据最近数据状态来决定是否执行合并插入缓冲、刷新脏页等操作，如果当前没有用户活动会切换到后台循环。
 
 后台循环（backgroup loop）操作：
+
 - 删除无用 undo 页（总是）；
 - 合并 20 个插入缓冲（总是）；
 - 跳回主循环（总是）；
@@ -108,15 +109,14 @@ InnoDB 存储引擎会根据最近数据状态来决定是否执行合并插入�
 
 如果刷新循环（flush loop）中也无事可做，InnoDB 存储引擎会切换到暂停循环，挂起 Master Thread 等待事件发生。
 
-`InnoDB 1.2.x 版本之前` ： 在 InnoDB 1.0.x 版本之前，Master Thread 做了大量地刷新脏页、合并缓冲等操作，Master Thread 负载较大。 从 InnoDB 1.0.x 版本开始引入了 `innodb_io_capacity` 参数来控制磁盘 IO 吞吐量，合并插入缓冲和刷新脏页数量会受到 innodb_io_capacity 限制。
-另一个问题， `innodb_max_dirty_pages_pct` 参数在 InnoDB 1.0.x 版本之前默认值是 90，意味着脏页占缓冲池的 90%，从 InnoDB 1.0.x 版本开始这个参数默认值修改为 75，这样即可以加快脏页刷新频率又保证了磁盘负载。
-InnoDB 1.0.x 版本还带来了两个个参数 `innodb_adaptive_flushing` 和 `innodb_purge_batch_size` ， innodb_adaptive_flushing 影响每秒刷新脏页频率，innodb_purge_batch_size 控制每次 full purge 回收 undo 页的数量。此外，从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
+`InnoDB 1.2.x 版本之前` ： 在 InnoDB 1.0.x 版本之前，Master Thread 做了大量地刷新脏页、合并缓冲等操作，Master Thread 负载较大。 从 InnoDB 1.0.x 版本开始引入了 `innodb_io_capacity` 参数来控制磁盘 IO 吞吐量，合并插入缓冲和刷新脏页数量会受到 innodb_io_capacity 限制。另一个问题， `innodb_max_dirty_pages_pct` 参数在 InnoDB 1.0.x 版本之前默认值是 90，意味着脏页占缓冲池的 90%，从 InnoDB 1.0.x 版本开始这个参数默认值修改为 75，这样即可以加快脏页刷新频率又保证了磁盘负载。InnoDB 1.0.x 版本还带来了两个个参数 `innodb_adaptive_flushing` 和 `innodb_purge_batch_size` ， innodb_adaptive_flushing 影响每秒刷新脏页频率，innodb_purge_batch_size 控制每次 full purge 回收 undo 页的数量。此外，从 InnoDB 1.1 版本开始，purge 操作可以通过命令启用独立的 Purge Thread 来回收 undo 页，以此减轻 Master Thread 的压力，从而提升 CPU 的使用率和存储引擎的性能。
 
 `InnoDB 1.2.x 版本` ： InnoDB 1.2.x 版本对 Master Thread 进一步优化，将刷新脏页操作从 Master Thread 线程分离到一个单独的 Page Cleaner Thread 中，从而提高系统并发性。 
 
 ### InnoDB 关键特性
 
 InnoDB关键特性包括：
+
 - 插入缓冲（Insert Buffer）
 - 两次写（Double Write）
 - 自适应哈希索引（Adaptive Hash Index）
@@ -138,8 +138,7 @@ InnoDB 1.0.x 版本引入了 Change Buffer,可以视为 Insert Buffer 的升级�
     <img src="https://github.com/lazecoding/Note/blob/main/images/mysql/DoubleWrite体系架构.png" width="600px">
 </div>
 
-上图是 InnoDB 存储引擎中 Double Write 体系架构图，由两部分组成：一部分是内存中的 doublewrite buffer,大小为 2MB，另一部分是物理磁盘上共享表空间中连续的 128 个页，即两个区，大小同样为 2MB。在对缓冲池的脏页进行刷新的时候，先将脏页复制到内存中的 doublewrite buffer,之后分两次每次 1MB 顺序地写入共享表空间的物理磁盘上，然后马上调用 fsync 函数，同步磁盘，避免缓冲写带来的问题。
-在这个过程中，因为共享表空间中 doublewrite 页是连续的，所以这个过程是顺序写，开销不是很大。完成 doublewrite 页写入后再将 doublewrite buffer 中的页写入各个表空间文件中，最后的写入是离散的。
+上图是 InnoDB 存储引擎中 Double Write 体系架构图，由两部分组成：一部分是内存中的 doublewrite buffer,大小为 2MB，另一部分是物理磁盘上共享表空间中连续的 128 个页，即两个区，大小同样为 2MB。在对缓冲池的脏页进行刷新的时候，先将脏页复制到内存中的 doublewrite buffer,之后分两次每次 1MB 顺序地写入共享表空间的物理磁盘上，然后马上调用 fsync 函数，同步磁盘，避免缓冲写带来的问题。在这个过程中，因为共享表空间中 doublewrite 页是连续的，所以这个过程是顺序写，开销不是很大。完成 doublewrite 页写入后再将 doublewrite buffer 中的页写入各个表空间文件中，最后的写入是离散的。
 
 如果操作系统将页的数据写入磁盘的过程中发生了崩溃，在恢复过程中，InnoDB存储引擎可以从共享表空间中的 doublewrite 中找到该页的副本将其复制到表空间文件中，再应用重做日志。
 

@@ -278,8 +278,7 @@ protected void execute(Terminal terminal, OptionSet options) throws Exception {
 }
 ```
 
-接着调用的 execute 方法继承自 EnvironmentAwareCommand 抽象类。该方法对 options 进一步解析，初始化在 settings 变量中，这是一个 Map；接着对 `es.path.data`、`es.path.home` 和 `es.path.logs` 属性配置做校验；
-最终执行 `execute(terminal, options, createEnv(settings));`。
+接着调用的 execute 方法继承自 EnvironmentAwareCommand 抽象类。该方法对 options 进一步解析，初始化在 settings 变量中，这是一个 Map；接着对 `es.path.data`、`es.path.home` 和 `es.path.logs` 属性配置做校验；最终执行 `execute(terminal, options, createEnv(settings));`。
 
 - createEnv
 
@@ -331,8 +330,7 @@ public static Environment prepareEnvironment(Settings input, Map<String, String>
 }
 ```
 
-在执行 `execute(terminal, options, createEnv(settings));` 时，会先执行 `createEnv(settings)`。顾名思义，创建环境对象。createEnv 方法校验 `es.path.conf` 属性后调用 prepareEnvironment 方法，
-做 `new Environment(output.build(), configPath)` 前的准备工作。
+在执行 `execute(terminal, options, createEnv(settings));` 时，会先执行 `createEnv(settings)`。顾名思义，创建环境对象。createEnv 方法校验 `es.path.conf` 属性后调用 prepareEnvironment 方法，做 `new Environment(output.build(), configPath)` 前的准备工作。
 
 实例化 Environment 对象主要就是对配置属性的注入。
 
@@ -395,8 +393,7 @@ void init(final boolean daemonize, final Path pidFile, final boolean quiet, Envi
 }
 ```
 
-`Elasticsearch#execute` 会打印 JVM 信息并执行 `init(daemonize, pidFile, quiet, env);`,init 方法执行 `Bootstrap.init(!daemonize, pidFile, quiet, initialEnv);`。
-Bootstrap 是启动类，调用其 init 方法启动 ElasticSearch  服务。
+`Elasticsearch#execute` 会打印 JVM 信息并执行 `init(daemonize, pidFile, quiet, env);`,init 方法执行 `Bootstrap.init(!daemonize, pidFile, quiet, initialEnv);`。Bootstrap 是启动类，调用其 init 方法启动 ElasticSearch  服务。
 
 ### Bootstrap
 

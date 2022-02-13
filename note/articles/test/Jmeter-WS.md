@@ -1,7 +1,6 @@
 # Jmeter 压测 —— WebSocket
 
-我们可以用 Jmeter 压测 WebSocket 服务器，点击 [Jmeter](https://github.com/lazecoding/Note/blob/main/note/articles/test/Jmeter.md)
-查看 Jmeter 安装和配置。
+我们可以用 Jmeter 压测 WebSocket 服务器，点击 [Jmeter](https://github.com/lazecoding/Note/blob/main/note/articles/test/Jmeter.md) 查看 Jmeter 安装和配置。
 
 ### 安装插件
 

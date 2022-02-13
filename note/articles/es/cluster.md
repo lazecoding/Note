@@ -201,8 +201,7 @@ MasterService 类图：
 
 #### ClusterApplierService
 
-ClusterApplierService 类负责管理集群状态，以及通知各个 Applier 应用集群状态。
-主节点和从节点都会应用集群状态，如果某个模块需要处理集群状态，则调用 addStateApplier 方法添加一个处理器；如果想监听集群状态的变化，则通过 addListener 添加一个监听器。
+ClusterApplierService 类负责管理集群状态，以及通知各个 Applier 应用集群状态。主节点和从节点都会应用集群状态，如果某个模块需要处理集群状态，则调用 addStateApplier 方法添加一个处理器；如果想监听集群状态的变化，则通过 addListener 添加一个监听器。
 
 ClusterApplierService 类图：
 
@@ -225,8 +224,7 @@ ClusterApplierService 类图：
 
 #### 线程池
 
-MasterService 和 ClusterApplierService 中使用的线程池都是 PrioritizedEsThreadPoolExecutor，corePoolSize、maximumPoolSize 都是 1, keepAliveTime 为 0，
-继续跟踪到 PrioritizedEsThreadPoolExecutor 的构造函数，可以看到线程池使用带优先级的阻塞队列 PriorityBlockingQueue。
+MasterService 和 ClusterApplierService 中使用的线程池都是 PrioritizedEsThreadPoolExecutor，corePoolSize、maximumPoolSize 都是 1, keepAliveTime 为 0，继续跟踪到 PrioritizedEsThreadPoolExecutor 的构造函数，可以看到线程池使用带优先级的阻塞队列 PriorityBlockingQueue。
 
 ```java
 // org/elasticsearch/common/util/concurrent/EsExecutors.java#newSinglePrioritizing
@@ -332,8 +330,7 @@ public void submitTasks(List<? extends BatchedTask> tasks, @Nullable TimeValue t
 
 submitTasks 方法第一个参数为任务列表，第二个参数为超时时间；提交的任务本质上是一个 Runnable。submitTasks 方法会对任务进行去重，批量提交的任务会被添加到 existingTasks 集合中，之后会将提交的任务放到线程池中执行。
 
-虽然这里只将任务列表的第一个任务交个线程池执行，但是任务列表的全部任务被添加到 tasksPerBatchingKey 中，线程池执行任务时，根据任务的 batchingKey 从 tasksPerBatchingKey 中获取任务列表，
-然后批量执行这个任务列表。
+虽然这里只将任务列表的第一个任务交个线程池执行，但是任务列表的全部任务被添加到 tasksPerBatchingKey 中，线程池执行任务时，根据任务的 batchingKey 从 tasksPerBatchingKey 中获取任务列表，然后批量执行这个任务列表。
 
 #### 执行任务
 
@@ -389,8 +386,7 @@ void runIfNotProcessed(BatchedTask updateTask) {
 }
 ```
 
-根据 batchingKey 获取任务列表，用这个任务列表中尚未执行的任务构建新的列表，这个新列表就是真实要执行的任务列表。
-如果列表不为空，会调用 `MasterService.Batcher#run` 方法，进而调用 `MasterService#runTasks` 真正进行业务处理。
+根据 batchingKey 获取任务列表，用这个任务列表中尚未执行的任务构建新的列表，这个新列表就是真实要执行的任务列表。如果列表不为空，会调用 `MasterService.Batcher#run` 方法，进而调用 `MasterService#runTasks` 真正进行业务处理。
 
 - MasterService#runTasks
 
@@ -458,13 +454,11 @@ private void runTasks(TaskInputs taskInputs) {
 
 runTasks 会执行任务并发布集群状态，而且 MasterService 的行为只会在 Master 节点上执行。
 
-该方法首先校验了当前 Node 是否是 Master 节点，然后调用 `calculateTaskOutputs(taskInputs, previousClusterState);` 执行任务并获取 taskOutputs 对象。taskOutputs 对象保存了任务执行前后的集群状态，
-通过它来判断是否需要发布新的集群状态。如果集群状态发生变化，则执行集群状态发布业务。
+该方法首先校验了当前 Node 是否是 Master 节点，然后调用 `calculateTaskOutputs(taskInputs, previousClusterState);` 执行任务并获取 taskOutputs 对象。taskOutputs 对象保存了任务执行前后的集群状态，通过它来判断是否需要发布新的集群状态。如果集群状态发生变化，则执行集群状态发布业务。
 
 #### 发布集群状态
 
-首先了解一下节点发现：DiscoveryModule 是发现模块，用于加载 `节点发现相关类` 的模块。Discovery 是节点发现的接口，有 Coordinator 和 ZenDiscovery 两种实现，其中 Coordinator 是 ElasticSearch 7.x 版本
-基于 Raft 算法实现的。
+首先了解一下节点发现：DiscoveryModule 是发现模块，用于加载 `节点发现相关类` 的模块。Discovery 是节点发现的接口，有 Coordinator 和 ZenDiscovery 两种实现，其中 Coordinator 是 ElasticSearch 7.x 版本基于 Raft 算法实现的。
 
 发布集群状态由 `ClusterStatePublisher#publish` 展开，我们采用 Coordinator 中的实现执行。其中，集群状态的发布分成了两个阶段：发布阶段和提交阶段。
 

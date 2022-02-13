@@ -533,8 +533,7 @@ protected Object getSingleton(String beanName, boolean allowEarlyReference) {
 - 二级缓存：保存所有早期创建的 Bean 实例，这个 Bean 还没有完成依赖注入
 - 三级缓存：singletonBean 的生产工厂
 
-其中特别需要关注的是 singletonFactories，它的 value 中保存的类是 ObjectFactory，这是一个函数式接口，是用于返回对象的工厂接口。
-实际上，这个 ObjectFactory 是个 Lambda 表达式：() -> getEarlyBeanReference(beanName, mbd, bean)。
+其中特别需要关注的是 singletonFactories，它的 value 中保存的类是 ObjectFactory，这是一个函数式接口，是用于返回对象的工厂接口。实际上，这个 ObjectFactory 是个 Lambda 表达式：() -> getEarlyBeanReference(beanName, mbd, bean)。
 
 getEarlyBeanReference 做了两件事：
 
@@ -906,8 +905,7 @@ Spring 中解决循环依赖正是这种思路：实例化和初始化分离。S
 - 二级缓存：保存所有早期创建的 Bean 实例，这个 Bean 还没有完成依赖注入
 - 三级缓存：singletonBean 的生产工厂
 
-其中特别需要关注的是 singletonFactories，它的 value 中保存的类是 ObjectFactory，这是一个函数式接口，是用于返回对象的工厂接口。
-实际上，这个 ObjectFactory 是个 Lambda 表达式：() -> getEarlyBeanReference(beanName, mbd, bean)。
+其中特别需要关注的是 singletonFactories，它的 value 中保存的类是 ObjectFactory，这是一个函数式接口，是用于返回对象的工厂接口。实际上，这个 ObjectFactory 是个 Lambda 表达式：() -> getEarlyBeanReference(beanName, mbd, bean)。
 
 ```java
 /** Cache of singleton objects: bean name to bean instance. */
@@ -948,9 +946,7 @@ Spring 管理的 Bean 其实默认都是单例的，也就是说 Spring 将最�
 
 既然一级缓存不行，我们再加一层，二级缓存存放实例化但未初始化完成的 bean，行吗？
 
-流程分析：首先实例化 A，将 A 放到二级缓存中，如果 A 需要依赖 B，B 未从缓存中获取，则 B 进行实例化,放入二级缓存中。当 B 依赖了 A，
-从二级缓存中获取了 A，B 实例成功填充了 A，完成了 B 的初始化（清除二级缓存中 B，将 B 加入到一级缓存）。
-接下来将 B 填充到 A 中，完成 A 的初始化（清除二级缓存中 A，将 A 加入到一级缓存）。
+流程分析：首先实例化 A，将 A 放到二级缓存中，如果 A 需要依赖 B，B 未从缓存中获取，则 B 进行实例化,放入二级缓存中。当 B 依赖了 A，从二级缓存中获取了 A，B 实例成功填充了 A，完成了 B 的初始化（清除二级缓存中 B，将 B 加入到一级缓存）。接下来将 B 填充到 A 中，完成 A 的初始化（清除二级缓存中 A，将 A 加入到一级缓存）。
 
 上面的流程看起来已经成功解决了循环依赖，然而这不是真的。让我们先回顾一下 Spring 管理 Bean 的主要流程：
 
@@ -985,6 +981,4 @@ public interface ObjectFactory<T> {
 addSingletonFactory(beanName, () -> getEarlyBeanReference(beanName, mbd, bean));
 ```
 
-流程分析：首先实例化 A，如果 A 需要单例、存在循环依赖且正在创建中，就将 bean 的生产工厂放入三级缓存，如果 A 需要依赖 B，B 未从缓存中获取，则 B 进行实例化。
-如果 B 需要单例、存在循环依赖且正在创建中就将 B 添加到三级缓存中，从三级缓存中获取 A 并将 A 填入 B 中（通过三级缓存获取 bean 时，会将这个 bean 加入到二级缓存中），
-完成 B 的初始化（清除二级、三级缓存，放入一级缓存）。接下来将 B 填充到 A 中，完成 A 的初始化（清除二级、三级缓存，放入一级缓存）。
+流程分析：首先实例化 A，如果 A 需要单例、存在循环依赖且正在创建中，就将 bean 的生产工厂放入三级缓存，如果 A 需要依赖 B，B 未从缓存中获取，则 B 进行实例化。如果 B 需要单例、存在循环依赖且正在创建中就将 B 添加到三级缓存中，从三级缓存中获取 A 并将 A 填入 B 中（通过三级缓存获取 bean 时，会将这个 bean 加入到二级缓存中），完成 B 的初始化（清除二级、三级缓存，放入一级缓存）。接下来将 B 填充到 A 中，完成 A 的初始化（清除二级、三级缓存，放入一级缓存）。

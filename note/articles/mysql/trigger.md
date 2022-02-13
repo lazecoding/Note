@@ -43,6 +43,7 @@ END
 #### 关键字
 
 statement_list 中可以使用 NEW 和 OLD 两个关键字，该关键字，表示触发了触发器的哪一行数据。
+
 - INSERT 触发器中,NEW用来表示将要 (BEFORE) 或已经 (AFTER) 插入的新数据。
 - UPDATE 触发器中，OLD 用来表示将要或已经被修改的原数据，NEW 用来表示将要或已经修改为的新数据。
 - DELETE 触发器中，OLD 用来表示将要或已经被删除的原数据。
@@ -52,6 +53,7 @@ statement_list 中可以使用 NEW 和 OLD 两个关键字，该关键字，表�
 ### 执行顺序
 
 触发器的执行顺序：
+
 - 如果 BEFORE 触发器执行失败，SQL 无法正确执行。
 - SQL 执行失败时，AFTER 型触发器不会触发。
 - AFTER 类型的触发器执行失败，SQL 会回滚。
@@ -68,7 +70,9 @@ DROP TRIGGER [IF EXISTS] [schema_name.]trigger_name;
 ### 例子
 
 需求：一个字段的值变化时改变另一个字段的值。
+
 例子如下：
+
 ``` SQL
 -- 修改数据触发
 CREATE TRIGGER trigger_1 BEFORE UPDATE ON cms FOR EACH ROW

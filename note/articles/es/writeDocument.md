@@ -20,8 +20,7 @@ Document 的基本写入模型：
 
 ### RestIndexAction
 
-Netty4HttpRequestHandler 是 ElasticSearch 的网络请求处理器。当客户端发起一个 REST 请求，由 Netty4HttpRequestHandler 接收，
-交由 RestController 调度对应的 action handler 处理该请求。
+Netty4HttpRequestHandler 是 ElasticSearch 的网络请求处理器。当客户端发起一个 REST 请求，由 Netty4HttpRequestHandler 接收，交由 RestController 调度对应的 action handler 处理该请求。
 
 写入 Document 对应的处理器是 `RestIndexAction`。
 
@@ -125,8 +124,7 @@ TransportIndexAction 是 TransportAction 的实现之一，类图如下：
 
 - TransportIndexAction#execute
 
-TransportIndexAction 的 execute 操作继承自 TransportAction，接着会调用 doExecute 方法，该方法继承自
-TransportSingleItemBulkWriteAction。
+TransportIndexAction 的 execute 操作继承自 TransportAction，接着会调用 doExecute 方法，该方法继承自 TransportSingleItemBulkWriteAction。
 
 - TransportSingleItemBulkWriteAction#doExecute
 

@@ -230,8 +230,7 @@ public abstract class BaseObjectPoolConfig<T> extends BaseObject implements Clon
 - `minEvictableIdleTimeMillis`：连接的最小空闲时间，达到此值后该空闲连接可能会被移除（还需看是否已达最大空闲连接数）；默认值 DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS = 1000L * 60L * 30L
 - `evictorShutdownTimeoutMillis`：关闭驱逐线程的超时时间；默认值 DEFAULT_EVICTOR_SHUTDOWN_TIMEOUT_MILLIS = 10L * 1000L。
 - `softMinEvictableIdleTimeMillis`：连接空闲的最小时间，达到此值后空闲链接将会被移除，且保留 minIdle 个空闲连接数；默认值 DEFAULT_SOFT_MIN_EVICTABLE_IDLE_TIME_MILLIS = -1
-- `numTestsPerEvictionRun`：检测空闲对象线程每次运行时检测的空闲对象的数量；如果 numTestsPerEvictionRun >= 0, 则取 numTestsPerEvictionRun 和池内的连接数的较小值作为每次检测的连接数；
-如果 numTestsPerEvictionRun < 0，则每次检查的连接数是检查时池内连接的总数除以这个值的绝对值再向上取整的结果；默认值 DEFAULT_NUM_TESTS_PER_EVICTION_RUN = 3。
+- `numTestsPerEvictionRun`：检测空闲对象线程每次运行时检测的空闲对象的数量；如果 numTestsPerEvictionRun >= 0, 则取 numTestsPerEvictionRun 和池内的连接数的较小值作为每次检测的连接数；如果 numTestsPerEvictionRun < 0，则每次检查的连接数是检查时池内连接的总数除以这个值的绝对值再向上取整的结果；默认值 DEFAULT_NUM_TESTS_PER_EVICTION_RUN = 3。
 - `evictionPolicy`：驱逐策略的类名；默认值 DEFAULT_EVICTION_POLICY_CLASS_NAME = “org.apache.commons.pool2.impl.DefaultEvictionPolicy”。
 - `testOnCreate`：在创建对象时检测对象是否有效, 配置 true 会降低性能；默认值 DEFAULT_TEST_ON_CREATE = false。
 - `testOnBorrow`：在从对象池获取对象时是否检测对象有效, 配置 true 会降低性能；默认值 DEFAULT_TEST_ON_BORROW = false。

@@ -33,8 +33,7 @@ NioEventLoopGroup 类图：
     <img src="https://github.com/lazecoding/Note/blob/main/images/netty/NioEventLoopGroup类图.png" width="600px">
 </div>
 
-我们可以看到 NioEventLoopGroup 继承自 Executor，Executor 是线程池执行器接口，这意味着 NioEventLoopGroup 本身就是线程池的实现，相当于内部封装了线程。
-既然 NioEventLoopGroup 是 NioEventLoop 的集合，那么意味着 NioEventLoopGroup 内部的线程封装是一组 NioEventLoop。
+我们可以看到 NioEventLoopGroup 继承自 Executor，Executor 是线程池执行器接口，这意味着 NioEventLoopGroup 本身就是线程池的实现，相当于内部封装了线程。既然 NioEventLoopGroup 是 NioEventLoop 的集合，那么意味着 NioEventLoopGroup 内部的线程封装是一组 NioEventLoop。
 
 实例化 NioEventLoopGroup:
 
@@ -170,8 +169,7 @@ protected MultithreadEventExecutorGroup(int nThreads, Executor executor,
 }
 ```
 
-我们可以看到，NioEventLoopGroup 线程数设置了多少，就创建多少个 EventLoop 存储在数组 children 中。children 是个 EventExecutor[] 数组，
-这里存储的是 `NioEventLoopGroup#newChild` 返回的 NioEventLoop。
+我们可以看到，NioEventLoopGroup 线程数设置了多少，就创建多少个 EventLoop 存储在数组 children 中。children 是个 EventExecutor[] 数组，这里存储的是 `NioEventLoopGroup#newChild` 返回的 NioEventLoop。
 
 newChild 是个接口，我们这里需要关注它在 NioEventLoopGroup 中的实现。
 
@@ -494,8 +492,7 @@ protected void run() {
 
 `NioEventLoop#run` 内部是一个死循环，根据队列中是否有任务来决定是否阻塞，它会循环处理事件的普通任务。
 
-ioRatio 是处理事件用时的比例，根据这个参数决定处理事件和其他任务的时间。
-`processSelectedKeys()` 处理事件，`runAllTasks()` 处理普通任务和定时任务。
+ioRatio 是处理事件用时的比例，根据这个参数决定处理事件和其他任务的时间。`processSelectedKeys()` 处理事件，`runAllTasks()` 处理普通任务和定时任务。
 
 ### 处理事件
 
@@ -705,8 +702,7 @@ void init(Channel channel) throws Exception {
 }
 ```
 
-`pipeline.addLast(new ServerBootstrapAcceptor(ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));` 向 Pipeline 注册了 accepet
-事件的处理器（ServerBootstrapAcceptor）。
+`pipeline.addLast(new ServerBootstrapAcceptor(ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));` 向 Pipeline 注册了 accepet 事件的处理器（ServerBootstrapAcceptor）。
 
 所以，`pipeline.fireChannelRead(readBuf.get(i));` 触发的 read 事件，在 `ServerBootstrapAcceptor#channelRead` 中完成。
 
@@ -827,8 +823,7 @@ private void register0(ChannelPromise promise) {
 
 `doRegister()` 将 ServerSocketChannel 注册到 EventLoop 的 Selector 中，`pipeline.invokeHandlerAddedIfNeeded();` 将自定义 hander 织入 pipeline 中。
 
-`isActive()` 判断 channel 状态，如果是 cctive 则进入分支。firstRegistration 表示第一次登记，如果是就触发 pipeline 的 active 事件，
-代码会执行到下面 `DefaultChannelPipeline#channelActive`。
+`isActive()` 判断 channel 状态，如果是 cctive 则进入分支。firstRegistration 表示第一次登记，如果是就触发 pipeline 的 active 事件，代码会执行到下面 `DefaultChannelPipeline#channelActive`。
 
 DefaultChannelPipeline#channelActive：
 

@@ -44,8 +44,7 @@
 
 - UUID Version 1：基于时间的 UUID
 
-基于时间的 UUID 通过计算当前时间戳、随机数和机器 MAC 地址得到。由于在算法中使用了 MAC 地址，这个版本的 UUID 可以保证在全球范围的唯一性。
-但与此同时，使用 MAC 地址会带来安全性问题，这就是这个版本 UUID 受到批评的地方。如果应用只是在局域网中使用，也可以使用退化的算法，以 IP 地址来代替 MAC 地址。
+基于时间的 UUID 通过计算当前时间戳、随机数和机器 MAC 地址得到。由于在算法中使用了 MAC 地址，这个版本的 UUID 可以保证在全球范围的唯一性。但与此同时，使用 MAC 地址会带来安全性问题，这就是这个版本 UUID 受到批评的地方。如果应用只是在局域网中使用，也可以使用退化的算法，以 IP 地址来代替 MAC 地址。
 
 - UUID Version 2：DCE 安全的 UUID
 
@@ -53,8 +52,7 @@ DCE（Distributed Computing Environment）安全的 UUID 和基于时间的 UUID
 
 - UUID Version 3：基于名字的 UUID（MD5）
 
-基于名字的 UUID 通过计算名字和名字空间的 MD5 散列值得到。这个版本的 UUID 保证了：相同名字空间中不同名字生成的 UUID 的唯一性；不同名字空间中的 UUID 的唯一性；
-相同名字空间中相同名字的 UUID 重复生成是相同的。
+基于名字的 UUID 通过计算名字和名字空间的 MD5 散列值得到。这个版本的 UUID 保证了：相同名字空间中不同名字生成的 UUID 的唯一性；不同名字空间中的 UUID 的唯一性；相同名字空间中相同名字的 UUID 重复生成是相同的。
 
 - UUID Version 4：随机 UUID
 
@@ -66,9 +64,7 @@ DCE（Distributed Computing Environment）安全的 UUID 和基于时间的 UUID
 
 权衡：
 
-Version 1/2 适合应用于分布式计算环境下，具有高度的唯一性；
-Version 3/5 适合于一定范围内名字唯一，且需要或可能会重复生成 UUID 的环境下；
-至于 Version 4，个人的建议是最好不用（虽然它是最简单最方便的）。
+Version 1/2 适合应用于分布式计算环境下，具有高度的唯一性；Version 3/5 适合于一定范围内名字唯一，且需要或可能会重复生成 UUID 的环境下；至于 Version 4，个人的建议是最好不用（虽然它是最简单最方便的）。
 
 优点：
 
@@ -76,8 +72,7 @@ Version 3/5 适合于一定范围内名字唯一，且需要或可能会重复�
 
 缺点：
 
-- ID 无序；字符串；长度过长；基于 MAC 生成可能造成 MAC 泄漏。
-（对于数据库主键，最好的应该有序，短小，数值类型。尤其是无序会导致数据库聚簇索引结构频繁变动）
+- ID 无序；字符串；长度过长；基于 MAC 生成可能造成 MAC 泄漏。（对于数据库主键，最好的应该有序，短小，数值类型。尤其是无序会导致数据库聚簇索引结构频繁变动）
 
 ###  数据库自增 ID 
 
@@ -121,8 +116,7 @@ CREATE TABLE SEQUENCE_ID (
 
 ### 号段模式
 
-号段模式是主流分布式 ID 生成方式之一，号段模式可以理解为从数据库批量的获取自增 ID，每次从数据库取出一个号段范围，例如 (1,1000] 代表 1000 个 ID，
-具体的业务服务将本号段，生成 1~1000 的自增 ID 并加载到内存。表结构如下：
+号段模式是主流分布式 ID 生成方式之一，号段模式可以理解为从数据库批量的获取自增 ID，每次从数据库取出一个号段范围，例如 (1,1000] 代表 1000 个 ID，具体的业务服务将本号段，生成 1~1000 的自增 ID 并加载到内存。表结构如下：
 
 ```sql
 
@@ -188,8 +182,7 @@ version = version + 1 where version = #{version} and biz_type = XXX
 
 > 12 bit 可以代表的最大正整数是 2 ^ 12 - 1 = 4096，也就是说可以用这个 12 bit 代表的数字来区分同一个毫秒内的 4096 个不同的 ID。理论上snowflake方案的QPS约为409.6w/s，这种分配方式可以保证在任何一个IDC的任何一台机器在任意毫秒内生成的ID都是不同的。
 
-根据这个算法，只需要将这个算法用 Java 语言实现出来，封装为一个工具方法，那么各个业务应用可以直接使用该工具方法来获取分布式 ID，只需保证每个业务应用有自己的工作机器 ID 即可，
-而不需要单独去搭建一个获取分布式 ID 的应用。
+根据这个算法，只需要将这个算法用 Java 语言实现出来，封装为一个工具方法，那么各个业务应用可以直接使用该工具方法来获取分布式 ID，只需保证每个业务应用有自己的工作机器 ID 即可，而不需要单独去搭建一个获取分布式 ID 的应用。
 
 优点：
 
@@ -207,8 +200,7 @@ Leaf 由美团开发，Leaf 同时支持号段模式和 Snowflake 算法模式�
 
 #### Segment
 
-通过 proxy server 批量获取分布式 ID，每次获取一个 segment 号段，用完之后再去数据库获取新的号段，大大的减轻数据库的压力；
-各个业务不同的发号需求用 biz_tag 字段来区分，每个 biz-tag 的 ID 获取相互隔离，互不影响。如果以后有性能需求需要对数据库扩容，只需要对 biz_tag 分库分表就行。
+通过 proxy server 批量获取分布式 ID，每次获取一个 segment 号段，用完之后再去数据库获取新的号段，大大的减轻数据库的压力；各个业务不同的发号需求用 biz_tag 字段来区分，每个 biz-tag 的 ID 获取相互隔离，互不影响。如果以后有性能需求需要对数据库扩容，只需要对 biz_tag 分库分表就行。
 
 建表语句如下：
 
@@ -232,8 +224,7 @@ CREATE TABLE `leaf_alloc` (
     <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-segment架构图.png" width="600px">
 </div>
 
-test_tag 在第一台 Leaf 机器上是 1~1000 的号段，当这个号段用完时，会去加载另一个长度为 step=1000 的号段，假设另外两台号段都没有更新，这个时候第一台机器新加载的号段就应该是 3001~4000。
-同时数据库对应的 biz_tag 这条数据的 max_id 会从 3000 被更新成 4000，更新号段的 SQL 语句如下：
+test_tag 在第一台 Leaf 机器上是 1~1000 的号段，当这个号段用完时，会去加载另一个长度为 step=1000 的号段，假设另外两台号段都没有更新，这个时候第一台机器新加载的号段就应该是 3001~4000。同时数据库对应的 biz_tag 这条数据的 max_id 会从 3000 被更新成 4000，更新号段的 SQL 语句如下：
 
 ```sql
 Begin
@@ -257,8 +248,7 @@ Commit
 
 ##### 双 buffer
 
-针对 TP999 采用双 buffer 的方式，Leaf 服务内部有两个号段缓存区 segment。当前号段已下发 10% 时，如果下一个号段未更新，则另启一个更新线程去更新下一个号段。
-当前号段全部下发完后，如果下个号段准备好了则切换到下个号段为当前 segment 接着下发，循环往复。
+针对 TP999 采用双 buffer 的方式，Leaf 服务内部有两个号段缓存区 segment。当前号段已下发 10% 时，如果下一个号段未更新，则另启一个更新线程去更新下一个号段。当前号段全部下发完后，如果下个号段准备好了则切换到下个号段为当前 segment 接着下发，循环往复。
 
 主要特性如下：
 
@@ -273,15 +263,13 @@ Commit
 
 #### Snowflake
 
-鉴于 Leaf-segment 方案不适用于美团的订单号这种场景（Leaf-segment 方案可以生成趋势递增的 ID，同时 ID 号是可计算的，很容易被猜出美团每日的订单量这种商业秘密），
-所以 Leaf-Snowflake 方案就应运而生了。
+鉴于 Leaf-segment 方案不适用于美团的订单号这种场景（Leaf-segment 方案可以生成趋势递增的 ID，同时 ID 号是可计算的，很容易被猜出美团每日的订单量这种商业秘密），所以 Leaf-Snowflake 方案就应运而生了。
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/Leaf-Snowflake示意图.png" width="600px">
 </div>
 
-Leaf-Snowflake 方案完全沿用 Snowflake 方案的 bit 位设计。对于 workerID 的分配，当服务集群数量较小的情况下，完全可以手动配置。Leaf 服务规模较大，动手配置成本太高。
-所以 Leaf-Snowflake 使用 Zookeeper 持久顺序节点的特性自动对 Snowflake 节点配置 wokerID。Leaf-snowflake 是按照下面几个步骤启动的：
+Leaf-Snowflake 方案完全沿用 Snowflake 方案的 bit 位设计。对于 workerID 的分配，当服务集群数量较小的情况下，完全可以手动配置。Leaf 服务规模较大，动手配置成本太高。所以 Leaf-Snowflake 使用 Zookeeper 持久顺序节点的特性自动对 Snowflake 节点配置 wokerID。Leaf-snowflake 是按照下面几个步骤启动的：
 
 - 启动 Leaf-snowflake 服务，连接 Zookeeper，在 leaf_forever 父节点下检查自己是否已经注册过（是否有该顺序子节点）。
 - 如果有注册过直接取回自己的 workerID（zk 顺序节点生成的 int 类型 ID 号），启动服务。
@@ -306,14 +294,12 @@ Leaf-Snowflake 方案完全沿用 Snowflake 方案的 bit 位设计。对于 wor
 参见上图整个启动流程图，服务启动时首先检查自己是否写过 ZooKeeper leaf_forever 节点：
 
 - 若写过，则用自身系统时间与 leaf_forever/${self} 节点记录时间做比较，若小于 leaf_forever/${self} 时间则认为机器时间发生了大步长回拨，服务启动失败并报警。
-- 若未写过，证明是新服务节点，直接创建持久节点 leaf_forever/${self} 并写入自身系统时间，接下来综合对比其余 Leaf 节点的系统时间来判断自身系统时间是否准确，
-具体做法是取 leaf_temporary 下的所有临时节点（所有运行中的 Leaf-snowflake 节点）的服务 IP:Port，然后通过 RPC 请求得到所有节点的系统时间，计算 sum(time)/nodeSize。
+- 若未写过，证明是新服务节点，直接创建持久节点 leaf_forever/${self} 并写入自身系统时间，接下来综合对比其余 Leaf 节点的系统时间来判断自身系统时间是否准确，具体做法是取 leaf_temporary 下的所有临时节点（所有运行中的 Leaf-snowflake 节点）的服务 IP:Port，然后通过 RPC 请求得到所有节点的系统时间，计算 sum(time)/nodeSize。
 - 若 abs( 系统时间-sum(time)/nodeSize ) < 阈值，认为当前系统时间准确，正常启动服务，同时写临时节点 leaf_temporary/${self} 维持租约。
 - 否则认为本机系统时间发生大步长偏移，启动失败并报警。
 - 每隔一段时间（3s）上报自身系统时间写入 leaf_forever/${self}。
 
-由于强依赖时钟，对时间的要求比较敏感，在机器工作时 NTP 同步也会造成秒级别的回退，建议可以直接关闭 NTP 同步。要么在时钟回拨的时候直接不提供服务直接返回 ERROR_CODE，等时钟追上即可。
-或者做一层重试，然后上报报警系统，更或者是发现有时钟回拨之后自动摘除本身节点并报警，如下：
+由于强依赖时钟，对时间的要求比较敏感，在机器工作时 NTP 同步也会造成秒级别的回退，建议可以直接关闭 NTP 同步。要么在时钟回拨的时候直接不提供服务直接返回 ERROR_CODE，等时钟追上即可。或者做一层重试，然后上报报警系统，更或者是发现有时钟回拨之后自动摘除本身节点并报警，如下：
 
 ```java
 //发生了回拨，此刻时间小于上次发号时间
@@ -356,8 +342,7 @@ uid-generator 是百度技术部基于 Snowflake 算法开发的，与原始的 
     <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/uid-generator-id示意图.png" width="600px">
 </div>
 
-由上图可知，uid-generator 的时间部分长度只有 28 位，这就意味着 uid-generator 默认只能承受 8.5 年（2^28-1/86400/365）。
-当然可以根据业务的需求，uid-generator 可以适当调整 delta seconds、worker node id 和 sequence 占用位数。
+由上图可知，uid-generator 的时间部分长度只有 28 位，这就意味着 uid-generator 默认只能承受 8.5 年（2^28-1/86400/365）。当然可以根据业务的需求，uid-generator 可以适当调整 delta seconds、worker node id 和 sequence 占用位数。
 
 接下来分析百度 uid-generator 的实现，它有两种方式：DefaultUidGenerator 和 CachedUidGenerator。
 
@@ -385,8 +370,7 @@ CREATE TABLE WORKER_NODE(
 )COMMENT='DB WorkerID Assigner for UID Generator',ENGINE = INNODB;
 ```
 
-uid-generator 会在实例启动时，往 WORKER_NODE 表中插入一行数据，得到的 id 值就是 workerId 的值。由于 workerId 默认 22 位，
-限制集成 uid-generator 生成分布式 ID 的所有实例重启次数不允许超过 4194303 次（即 2^22-1）。
+uid-generator 会在实例启动时，往 WORKER_NODE 表中插入一行数据，得到的 id 值就是 workerId 的值。由于 workerId 默认 22 位，限制集成 uid-generator 生成分布式 ID 的所有实例重启次数不允许超过 4194303 次（即 2^22-1）。
 
 - sequence
 
@@ -421,8 +405,7 @@ protected synchronized long nextId() {
 
 #### CachedUidGenerator
 
-CachedUidGenerator 是 uid-generator 的重要改进实现。它的核心利用了 RingBuffer，如下图所示，它本质上是一个数组，数组中每个项被称为 slot。uid-generator 设计了两个 RingBuffer，
-一个保存唯一 ID，一个保存 flag。RingBuffer 的尺寸是 2^n，n 必须是正整数：
+CachedUidGenerator 是 uid-generator 的重要改进实现。它的核心利用了 RingBuffer，如下图所示，它本质上是一个数组，数组中每个项被称为 slot。uid-generator 设计了两个 RingBuffer，一个保存唯一 ID，一个保存 flag。RingBuffer 的尺寸是 2^n，n 必须是正整数：
 
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/systemdesign/uid-generator-RingBuffer.png" width="600px">
@@ -430,18 +413,13 @@ CachedUidGenerator 是 uid-generator 的重要改进实现。它的核心利用�
 
 - RingBuffer Of UID
 
-保存唯一 ID 的 RingBuffer，它有两个指针，Tail 指针和 Cursor 指针。Tail 指针表示最后一个生成的唯一 ID。如果这个指针追上了 Cursor 指针，意味着 RingBuffer 已经满了。
-这时候，不允许再继续生成 ID 了。Cursor 指针表示最后一个已经给消费的唯一 ID。如果 Cursor 指针追上了 Tail 指针，意味着 RingBuffer 已经空了。这时候，不允许再继续获取 ID 了。
+保存唯一 ID 的 RingBuffer，它有两个指针，Tail 指针和 Cursor 指针。Tail 指针表示最后一个生成的唯一 ID。如果这个指针追上了 Cursor 指针，意味着 RingBuffer 已经满了。这时候，不允许再继续生成 ID 了。Cursor 指针表示最后一个已经给消费的唯一 ID。如果 Cursor 指针追上了 Tail 指针，意味着 RingBuffer 已经空了。这时候，不允许再继续获取 ID 了。
 
 - RingBuffer Of Flag
 
-这个 RingBuffer 的每个 slot 的值都是 0 或者 1，0 是 CAN_PUT_FLAG 的标志位，1 是 CAN_TAKE_FLAG 的标识位。每个 slot 的状态要么是 CAN_PUT，要么是 CAN_TAKE。
-以某个 slot 的值为例，初始值为 0，即 CAN_PUT。接下来会初始化填满这个 RingBuffer，这时候这个 slot 的值就是 1，即 CAN_TAKE。等获取分布式 ID 时取到这个 slot 的值后，
-这个 slot 的值又变为 0，以此类推。
+这个 RingBuffer 的每个 slot 的值都是 0 或者 1，0 是 CAN_PUT_FLAG 的标志位，1 是 CAN_TAKE_FLAG 的标识位。每个 slot 的状态要么是 CAN_PUT，要么是 CAN_TAKE。以某个 slot 的值为例，初始值为 0，即 CAN_PUT。接下来会初始化填满这个 RingBuffer，这时候这个 slot 的值就是 1，即 CAN_TAKE。等获取分布式 ID 时取到这个 slot 的值后，这个 slot 的值又变为 0，以此类推。
 
 
-CachedUidGenerator 在初始化 RingBuffer，会根据 boostPower 的值确定 RingBuffer 的 size。RingBuffer 参数 paddingFactor 默认值是 50，
-意指当 RingBuffer 中剩余可用 ID 数量少于 50% 的时候，将启动一个异步线程往 RingBuffer 中填充新的唯一 ID，直到填满为止。
+CachedUidGenerator 在初始化 RingBuffer，会根据 boostPower 的值确定 RingBuffer 的 size。RingBuffer 参数 paddingFactor 默认值是 50，意指当 RingBuffer 中剩余可用 ID 数量少于 50% 的时候，将启动一个异步线程往 RingBuffer 中填充新的唯一 ID，直到填满为止。
 
-在满足填充新的唯一 ID 条件时，CachedUidGenerator 通过`时间值递增`得到新的时间值，而不是 `System.currentTimeMillis()` 这种通过系统时钟的方式获取，从而脱离了对服务器时间的依赖，
-也就不会有时钟回拨的问题。而 lastSecond 是 AtomicLong 类型，所以线程也是安全的。
+在满足填充新的唯一 ID 条件时，CachedUidGenerator 通过`时间值递增`得到新的时间值，而不是 `System.currentTimeMillis()` 这种通过系统时钟的方式获取，从而脱离了对服务器时间的依赖，也就不会有时钟回拨的问题。而 lastSecond 是 AtomicLong 类型，所以线程也是安全的。

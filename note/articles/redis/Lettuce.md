@@ -9,8 +9,7 @@
 
 Lettuce 和 Jedis 一样，底层也使用了 Apache Commons-pool2 封装连接池，参数配置和含义基本一致。但是和 Jedis 不同的是，Jedis 连接池中每个线程都创建了一条连接，而 Lettuce 的连接池中多个线程可以共享一个连接。
 
-Lettuce 的连接是基于 Netty 的，连接实例 (StatefulRedisConnection) 可以在多个线程间并发访问，因为 StatefulRedisConnection 是线程安全的，所以一个连接实例 (StatefulRedisConnection) 就可以满足多线程环境下的并发访问。
-同时这是一个可伸缩的设计，一个连接实例不够的情况也可以按需增加连接实例。
+Lettuce 的连接是基于 Netty 的，连接实例 (StatefulRedisConnection) 可以在多个线程间并发访问，因为 StatefulRedisConnection 是线程安全的，所以一个连接实例 (StatefulRedisConnection) 就可以满足多线程环境下的并发访问。同时这是一个可伸缩的设计，一个连接实例不够的情况也可以按需增加连接实例。
 
 这意味着，Lettuce 的 API 是线程安全的，如果不是执行阻塞和事务操作，如 BLPOP 和 MULTI/EXEC，多个线程可以共享一个连接。
 

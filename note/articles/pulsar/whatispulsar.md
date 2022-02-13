@@ -35,8 +35,7 @@ Pulsar 的关键特性如下：
     - 基于 Pulsar Functions 的 serverless connector 框架 Pulsar IO 使得数据更易移入、移出 Apache Pulsar。
     - 分层式存储可在数据陈旧时，将数据从热存储卸载到冷/长期存储（如S3、GCS）中。
     
-Pulsar 采用 `发布-订阅` 的设计模式(pub-sub)，在这种模式中，生产者向主题发布消息；消费者 订阅这些主题，处理传入的消息，并在处理完成后向 broker 发送确认。消息一旦创建订阅，即使 consumer 断开连接，Pulsar 仍然可以保存所有消息。
-只有当消费者确认所有这些消息都已成功处理时，才会丢弃保留的消息。
+Pulsar 采用 `发布-订阅` 的设计模式(pub-sub)，在这种模式中，生产者向主题发布消息；消费者 订阅这些主题，处理传入的消息，并在处理完成后向 broker 发送确认。消息一旦创建订阅，即使 consumer 断开连接，Pulsar 仍然可以保存所有消息。只有当消费者确认所有这些消息都已成功处理时，才会丢弃保留的消息。
 
 ### 基本架构
 
@@ -67,8 +66,7 @@ Pulsar 的 broker 是一个无状态组件, 主要负责运行另外的两个组
 - 一个 HTTP 服务器，它为生产者和消费者的管理任务和主题查找公开一个 REST API。生产者连接到代理来发布消息，消费者连接到代理来消费消息。
 - 一个调度分发器, 它是异步的 TCP 服务器，通过自定义 二进制协议应用于所有相关的数据传输。
 
-出于性能的考虑, 通常从 managed ledger (ledger是Pulsar底层存储BookKeeper中的概念，相当于一种记录的集合) 缓存中调度消息, 除非积压的消息超过这个缓存的大小。
-如果积压的消息对于缓存来说太大了, 则 Broker 将开始从 BookKeeper 那里读取 Entries（Entry 同样是 BookKeeper 中的概念，相当于一条记录）。
+出于性能的考虑, 通常从 managed ledger (ledger是Pulsar底层存储BookKeeper中的概念，相当于一种记录的集合) 缓存中调度消息, 除非积压的消息超过这个缓存的大小。如果积压的消息对于缓存来说太大了, 则 Broker 将开始从 BookKeeper 那里读取 Entries（Entry 同样是 BookKeeper 中的概念，相当于一条记录）。
 
 最后，为了支持全局 Topic 异地复制，Broker 会控制 Replicators 追踪本地发布的条目，并把这些条目用 Java 客户端重新发布到其他区域。
 
@@ -78,9 +76,7 @@ Pulsar 的单个实例原生支持多个集群，单个 Pulsar 实例由一个�
 
 #### 元数据存储
 
-Pulsar 元数据存储维护 Pulsar 集群的全部元数据，比如主题元数据、Schema、Broker 负载数据等等。Pulsar 使用 Apache ZooKeeper 进行元数据存储、集群配置和协调。
-Pulsar 元数据存储可以部署在单独的 ZooKeeper 集群或者是部署在已有的 ZooKeeper 集群。你可以将 ZooKeeper 用作 Pulsar 元数据存储和 BookKeeper 元数据存储。如果想将部署的 Pulsar broker 连接到一个已有的 BookKeeper 集群，
-你需要部署单独的 ZooKeeper 集群分别用作 Pulsar 元数据存储和 BookKeeper 元数据存储。
+Pulsar 元数据存储维护 Pulsar 集群的全部元数据，比如主题元数据、Schema、Broker 负载数据等等。Pulsar 使用 Apache ZooKeeper 进行元数据存储、集群配置和协调。Pulsar 元数据存储可以部署在单独的 ZooKeeper 集群或者是部署在已有的 ZooKeeper 集群。你可以将 ZooKeeper 用作 Pulsar 元数据存储和 BookKeeper 元数据存储。如果想将部署的 Pulsar broker 连接到一个已有的 BookKeeper 集群，你需要部署单独的 ZooKeeper 集群分别用作 Pulsar 元数据存储和 BookKeeper 元数据存储。
 
 在 Pulsar 实例中：
 
@@ -89,8 +85,7 @@ Pulsar 元数据存储可以部署在单独的 ZooKeeper 集群或者是部署�
 
 #### 配置存储
 
-配置存储（Configuration Store）维护所有 Pulsar 集群的配置信息，比如集群、租户、命名空间、分区主题相关的配置等等。Pulsar 实例可能有一个本地集群、多个本地集群，或者多个跨区域集群。因此，配置存储可以在 Pulsar 实例下跨多个集群共享配置。
-配置存储可以部署在单独的 ZooKeeper 集群或者是部署在已有的 ZooKeeper 集群。
+配置存储（Configuration Store）维护所有 Pulsar 集群的配置信息，比如集群、租户、命名空间、分区主题相关的配置等等。Pulsar 实例可能有一个本地集群、多个本地集群，或者多个跨区域集群。因此，配置存储可以在 Pulsar 实例下跨多个集群共享配置。配置存储可以部署在单独的 ZooKeeper 集群或者是部署在已有的 ZooKeeper 集群。
 
 #### 持久化存储
 
@@ -124,11 +119,9 @@ Ledger 是一个只追加的数据结构，并且只有一个写入器，这个�
 - 当一个 ledger 被关闭后，除非明确的要写数据或者是因为写入器挂掉导致 ledger 关闭，这个 ledger 只会以只读模式打开。
 - 最后，当 ledger 中的条目不再有用的时候，整个 legder 可以被删除（ledger 分布是跨 Bookies 的）。
 
-BookKeeper 的主要优势在于他能在有系统故障时保证读的一致性。由于 ledger 只能被一个进程写入（之前提的写入器进程），这样这个进程在写入时不会有冲突，从而写入会非常高效。
-在一次故障之后，ledger 会启动一个恢复进程来确定 ledger 的最终状态并确认最后提交到日志的是哪一个条目。在这之后，能保证所有的 ledger 读进程读取到相同的内容。
+BookKeeper 的主要优势在于他能在有系统故障时保证读的一致性。由于 ledger 只能被一个进程写入（之前提的写入器进程），这样这个进程在写入时不会有冲突，从而写入会非常高效。在一次故障之后，ledger 会启动一个恢复进程来确定 ledger 的最终状态并确认最后提交到日志的是哪一个条目。在这之后，能保证所有的 ledger 读进程读取到相同的内容。
 
-由于 BookKeeper Ledgers 提供了单一的日志抽象，在 ledger 的基础上开发了一个叫 managed ledger 的库，用以表示单个 topic 的存储层。managed ledger 即消息流的抽象，有一个写入器进程不断在流结尾添加消息，并且有多个 cursors 消费这个流，
-每个 cursor 有自己的消费位置。
+由于 BookKeeper Ledgers 提供了单一的日志抽象，在 ledger 的基础上开发了一个叫 managed ledger 的库，用以表示单个 topic 的存储层。managed ledger 即消息流的抽象，有一个写入器进程不断在流结尾添加消息，并且有多个 cursors 消费这个流，每个 cursor 有自己的消费位置。
 
 一个 managed ledger 在内部用多个 BookKeeper ledgers 保存数据，这么做有两个原因：
 
@@ -200,20 +193,17 @@ Topic1 有 5 个分区(P0 到 P4)，划分在 3 个 broker 上。因为分区多
 
 Pulsar 还支持非持久性主题，这些主题的消息从不持久存储到磁盘，只存在于内存中。当使用非持久 Topic 分发时，杀掉 Pulsar 的 broker 或者关闭订阅者，此 Topic（ non-persistent)）上所有的瞬时消息都会丢失，意味着客户端可能会遇到消息缺失。
 
-非持久 Topic 中，broker 会立即发布消息给所有连接的订阅者，而不会在 BookKeeper 中存储。如果有一个订阅者断开连接，broker 将无法重发这些瞬时消息，订阅者将永远也不能收到这些消息了。
-去掉持久化存储的步骤，在某些情况下，使得非持久 Topic 的消息比持久 Topic 稍微变快。但是同时，Pulsar的一些核心优势也丧失掉了。
+非持久 Topic 中，broker 会立即发布消息给所有连接的订阅者，而不会在 BookKeeper 中存储。如果有一个订阅者断开连接，broker 将无法重发这些瞬时消息，订阅者将永远也不能收到这些消息了。去掉持久化存储的步骤，在某些情况下，使得非持久 Topic 的消息比持久 Topic 稍微变快。但是同时，Pulsar的一些核心优势也丧失掉了。
 
 非持久消息传递通常比持久消息传递更快，因为 broker 不需要持久消息，并且在消息传递给连接的代理时立即将 ACK 发送回生产者。非持久 Topic 让 producer 有更低的发布延迟。
 
 #### 消息重试
 
-由于业务逻辑处理出现异常，消息一般需要被重新消费。Pulsar 支持生产者同时将消息发送到普通的 Topic 和重试 Topic，并指定允许延时和最大重试次数。当配置了允许消费者自动重试时，如果消息没有被消费成功，会被保存到重试 Topic 中，并在指定延时时间后，
-重新被消费。
+由于业务逻辑处理出现异常，消息一般需要被重新消费。Pulsar 支持生产者同时将消息发送到普通的 Topic 和重试 Topic，并指定允许延时和最大重试次数。当配置了允许消费者自动重试时，如果消息没有被消费成功，会被保存到重试 Topic 中，并在指定延时时间后，重新被消费。
 
 #### 死信
 
-当 Consumer 消费消息出错时，可以通过配置重试 Topic 对消息进行重试，但是，如果当消息超过了最大的重试次数仍处理失败时，该怎么办呢？Pulsar 提供了死信 Topic，通过配置 deadLetterTopic，当消息达到最大重试次数的时候，
-Pulsar 会将消息推送到死信 Topic 中进行保存。
+当 Consumer 消费消息出错时，可以通过配置重试 Topic 对消息进行重试，但是，如果当消息超过了最大的重试次数仍处理失败时，该怎么办呢？Pulsar 提供了死信 Topic，通过配置 deadLetterTopic，当消息达到最大重试次数的时候，Pulsar 会将消息推送到死信 Topic 中进行保存。
 
 #### 消息保留和过期
 

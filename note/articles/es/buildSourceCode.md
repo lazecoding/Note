@@ -6,7 +6,7 @@
 
 - 系统：Windows 10
 - IDE：IDEA 2021.3
-- JDK：
+- JDK：JDK 12.0.2
 - ElasticSearch 版本：7.5.2
 - Gradle 版本：5.6.2
 

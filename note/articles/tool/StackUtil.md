@@ -6,8 +6,7 @@
 
 StackUtil 包含一个内部类 -- `StackMap`，这是一个 TreeMap，它是一棵有序树，根据栈调用顺序排序，用来收集栈链路信息。
 
-StackUtil 提高了两类 API：getStackTraceContain 和 getStackTraceFilter。顾名思义，getStackTraceContain 只收集包含某些字符串的链路信息，getStackTraceFilter 排除包含某些字符串的链路信息。
-同时还额外地提供了 getStackTraceMerge 方法，意为 `不包含任意一个 filter,而且必须包含任意一个 contain`。
+StackUtil 提高了两类 API：getStackTraceContain 和 getStackTraceFilter。顾名思义，getStackTraceContain 只收集包含某些字符串的链路信息，getStackTraceFilter 排除包含某些字符串的链路信息。同时还额外地提供了 getStackTraceMerge 方法，意为 `不包含任意一个 filter,而且必须包含任意一个 contain`。
 
 使用 StackUtil，你可以获取通过 getXXX 获取 StackMap，也可通过 printXXX 打印链路信息，而且可以重写 print 放决定如何记录日志。
 

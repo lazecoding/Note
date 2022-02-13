@@ -141,8 +141,7 @@ NioServerSocketChannel 构造函数与 NioServerSocketChannel 类似，创建了
 
 #### Channel 什么时候被创建
 
-从前面的学习，我们知道 Boss Group 处理建立连接事件，Worker Group 处理读写。既然 Channel 是数据交互的通道，那么理所当然在 Boss Group
-处理建立连接事件时候，会创建 Channel。
+从前面的学习，我们知道 Boss Group 处理建立连接事件，Worker Group 处理读写。既然 Channel 是数据交互的通道，那么理所当然在 Boss Group 处理建立连接事件时候，会创建 Channel。
 
 点击 [EventLoop 处理 accept 事件](https://github.com/lazecoding/Note/blob/main/note/articles/netty/NioEventLoopInGroup.md#accept-事件) 了解更多。
 
@@ -189,8 +188,7 @@ Netty 提供 2 个重要的 ChannelHandler 子接口：
 - ChannelInboundHandler：处理进站数据，并且所有状态都更改。
 - ChannelOutboundHandler：处理出站数据，允许拦截各种操作。
 
-打个比喻，每个 Channel 是一个产品的加工车间，Pipeline 是车间中的流水线，ChannelHandler 就是流水线上的各道工序，而后面要讲的 ByteBuf 是原材料，经过很多工序的加工：
-先经过一道道入站工序，再经过一道道出站工序最终变成产品。
+打个比喻，每个 Channel 是一个产品的加工车间，Pipeline 是车间中的流水线，ChannelHandler 就是流水线上的各道工序，而后面要讲的 ByteBuf 是原材料，经过很多工序的加工：先经过一道道入站工序，再经过一道道出站工序最终变成产品。
 
 #### Sharable 注解
 

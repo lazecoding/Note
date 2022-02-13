@@ -5,8 +5,7 @@
     - [实例化](#实例化)
     - [ChannelPipeline 中存储着什么](#ChannelPipeline-中存储着什么)
 
-我们可以认为 ChannelPipeline 是一系列 ChannelHandler 实例,用于拦截流经一个 Channel 的入站和出站事件,这些 ChannelHandler 可以提供的交互的核心应用程序的数据和事件处理逻辑。
-每创建一个 Channel 都会分配一个新的 ChannelPipeline。这个关联是永久性的：Channel 既不能附上另一个 ChannelPipeline 也不能分离当前这个。
+我们可以认为 ChannelPipeline 是一系列 ChannelHandler 实例,用于拦截流经一个 Channel 的入站和出站事件,这些 ChannelHandler 可以提供的交互的核心应用程序的数据和事件处理逻辑。每创建一个 Channel 都会分配一个新的 ChannelPipeline。这个关联是永久性的：Channel 既不能附上另一个 ChannelPipeline 也不能分离当前这个。
 
 根据事件的起源，一个事件将由 ChannelInboundHandler 或 ChannelOutboundHandler 处理。随后它将调用 ChannelHandlerContext 实现转发到下一个相同的超类型的处理程序。
 
@@ -16,8 +15,7 @@
     <img src="https://github.com/lazecoding/Note/blob/main/images/netty/一组ChannelHandler的典型ChannelPipeline布局示意图.png" width="600px">
 </div>
 
-可以看到，ChannelPipeline 的实现是一个 ChannelHandlerContext 组成的双向链表。
-ChannelInboundHandler 是按照 addLast 的顺序执行的，而 ChannelOutboundHandler 是按照 addLast 的逆序执行的。
+可以看到，ChannelPipeline 的实现是一个 ChannelHandlerContext 组成的双向链表。ChannelInboundHandler 是按照 addLast 的顺序执行的，而 ChannelOutboundHandler 是按照 addLast 的逆序执行的。
 
 ### ChannelPipeline 接口类
 
@@ -235,8 +233,7 @@ public interface ChannelPipeline
 
 ### 实例化
 
-ChannelPipeline 是接口类，它的子类是 DefaultChannelPipeline。从 [Channel](https://github.com/lazecoding/Note/blob/main/note/articles/netty/Channel.md) 中我们知道，
-在创建 Channel 的时候，会为 Channel 实例化一个 ChannelPipeline。
+ChannelPipeline 是接口类，它的子类是 DefaultChannelPipeline。从 [Channel](https://github.com/lazecoding/Note/blob/main/note/articles/netty/Channel.md) 中我们知道，在创建 Channel 的时候，会为 Channel 实例化一个 ChannelPipeline。
 
 DefaultChannelPipeline 构造函数：
 
@@ -311,7 +308,6 @@ public final ChannelPipeline addLast(EventExecutorGroup group, String name, Chan
 }
 ```
 
-`DefaultChannelPipeline#addLast` 方法其实很简单，就是将 hander 包装成 ChannelHandlerContext 再放入 Pipeline 中，
-然后调用回调方法。
+`DefaultChannelPipeline#addLast` 方法其实很简单，就是将 hander 包装成 ChannelHandlerContext 再放入 Pipeline 中，然后调用回调方法。
 
 所以说：`ChannelPipeline 的实现是一个 ChannelHandlerContext 组成的双向链表`。
