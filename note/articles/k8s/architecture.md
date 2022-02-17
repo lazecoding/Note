@@ -22,7 +22,13 @@
     - [Secret](#Secret)
     - [User Account 和 Service Account](#User-Account-和-Service-Account)
     - [Namespace](#Namespace)
-  - [总结](#总结)
+  - [开放接口](#开放接口)
+    - [容器运行时接口](#容器运行时接口)
+    - [容器网络接口](#容器网络接口)
+    - [容器存储接口](#容器存储接口)
+  - [Kubernetes 对象](#Kubernetes-对象)
+    - [Spec 与 Status](#Spec-与-Status)
+    - [描述 Kubernetes 对象](#描述-Kubernetes-对象)
 
 Kubernetes 最初源于谷歌内部的 Borg，提供了面向应用的容器集群部署和管理系统。Kubernetes 的目标旨在消除编排物理/虚拟计算，网络和存储基础设施的负担，并使应用程序运营商和开发人员完全将重点放在以容器为中心的原语上进行自助运营。Kubernetes 也提供稳定、兼容的基础（平台），用于构建定制化的 workflows 和更高级的自动化任务。 Kubernetes 具备完善的集群管理能力，包括多层次的安全防护和准入机制、多租户应用支撑能力、透明的服务注册和服务发现机制、内建负载均衡器、故障发现和自我修复能力、服务滚动升级和在线扩容、可扩展的资源自动调度机制、多粒度的资源配额管理能力。Kubernetes 还提供完善的管理工具，涵盖开发、部署测试、运维监控等各个环节。
 
@@ -233,8 +239,233 @@ Kubernetes 集群中的计算能力由 Node 提供，最初 Node 称为服务节
 
 命名空间（Namespace）为 Kubernetes 集群提供虚拟的隔离作用，Kubernetes 集群初始有两个命名空间，分别是默认命名空间 default 和系统命名空间 kube-system，除此以外，管理员可以可以创建新的命名空间满足需要。
 
-### 总结
+> 我们可以看到 Kubernetes 系统最核心的两个设计理念：一个是 容错性，一个是 易扩展性。容错性实际是保证 Kubernetes 系统稳定性和安全性的基础，易扩展性是保证 Kubernetes 对变更友好，可以快速迭代增加新功能的基础。
+>
+> 按照分布式系统一致性算法 Paxos 发明人计算机科学家 Leslie Lamport 的理念，一个分布式系统有两类特性：安全性 Safety 和活性 Liveness。安全性保证系统的稳定，保证系统不会崩溃，不会出现业务错误，不会做坏事，是严格约束的；活性使得系统可以提供功能，提高性能，增加易用性，让系统可以在用户 “看到的时间内” 做些好事，是尽力而为的。Kubernetes 系统的设计理念正好与 Lamport 安全性与活性的理念不谋而合，也正是因为 Kubernetes 在引入功能和技术的时候，非常好地划分了安全性和活性，才可以让 Kubernetes 能有这么快版本迭代，快速引入像 RBAC、Federation 和 PetSet 这种新功能。
 
-我们可以看到 Kubernetes 系统最核心的两个设计理念：一个是 容错性，一个是 易扩展性。容错性实际是保证 Kubernetes 系统稳定性和安全性的基础，易扩展性是保证 Kubernetes 对变更友好，可以快速迭代增加新功能的基础。
+### 开放接口
 
-按照分布式系统一致性算法 Paxos 发明人计算机科学家 Leslie Lamport 的理念，一个分布式系统有两类特性：安全性 Safety 和活性 Liveness。安全性保证系统的稳定，保证系统不会崩溃，不会出现业务错误，不会做坏事，是严格约束的；活性使得系统可以提供功能，提高性能，增加易用性，让系统可以在用户 “看到的时间内” 做些好事，是尽力而为的。Kubernetes 系统的设计理念正好与 Lamport 安全性与活性的理念不谋而合，也正是因为 Kubernetes 在引入功能和技术的时候，非常好地划分了安全性和活性，才可以让 Kubernetes 能有这么快版本迭代，快速引入像 RBAC、Federation 和 PetSet 这种新功能。
+Kubernetes 作为云原生应用的基础调度平台，相当于云原生的操作系统，为了便于系统的扩展，Kubernetes 中开放的以下接口，可以分别对接不同的后端，来实现自己的业务逻辑：
+
+- 容器运行时接口（CRI）：提供计算资源。
+- 容器网络接口（CNI）：提供网络资源。
+- 容器存储接口（CSI），提供存储资源。
+
+- 以上三种资源相当于一个分布式操作系统的最基础的几种资源类型，而 Kuberentes 是将它们粘合在一起的纽带。
+
+#### 容器运行时接口
+
+容器运行时接口（Container Runtime Interface），简称 CRI。CRI 中定义了 容器 和 镜像 的服务的接口，因为容器运行时与镜像的生命周期是彼此隔离的，因此需要定义两个服务。该接口使用 Protocol Buffer，基于 gRPC，在 Kubernetes v1.10 + 版本中是在 `pkg/kubelet/apis/cri/runtime/v1alpha2` 的 `api.proto` 中定义的。
+
+api.proto：
+
+```C
+// Runtime service defines the public APIs for remote container runtimes
+service RuntimeService {
+    // Version returns the runtime name, runtime version, and runtime API version.
+    rpc Version (VersionRequest) returns (VersionResponse) {}
+
+    // RunPodSandbox creates and starts a pod-level sandbox. Runtimes must ensure
+    //the sandbox is in the ready state on success.
+    rpc RunPodSandbox (RunPodSandboxRequest) returns (RunPodSandboxResponse) {}
+    // StopPodSandbox stops any running process that is part of the sandbox and
+    //reclaims network resources (e.g., IP addresses) allocated to the sandbox.
+    // If there are any running containers in the sandbox, they must be forcibly
+    //terminated.
+    // This call is idempotent, and must not return an error if all relevant
+    //resources have already been reclaimed. kubelet will call StopPodSandbox
+    //at least once before calling RemovePodSandbox. It will also attempt to
+    //reclaim resources eagerly, as soon as a sandbox is not needed. Hence,
+    //multiple StopPodSandbox calls are expected.
+    rpc StopPodSandbox (StopPodSandboxRequest) returns (StopPodSandboxResponse) {}
+    // RemovePodSandbox removes the sandbox. If there are any running containers
+    //in the sandbox, they must be forcibly terminated and removed.
+    // This call is idempotent, and must not return an error if the sandbox has
+    //already been removed.
+    rpc RemovePodSandbox (RemovePodSandboxRequest) returns (RemovePodSandboxResponse) {}
+    // PodSandboxStatus returns the status of the PodSandbox. If the PodSandbox is not
+    //present, returns an error.
+    rpc PodSandboxStatus (PodSandboxStatusRequest) returns (PodSandboxStatusResponse) {}
+    // ListPodSandbox returns a list of PodSandboxes.
+    rpc ListPodSandbox (ListPodSandboxRequest) returns (ListPodSandboxResponse) {}
+
+    // CreateContainer creates a new container in specified PodSandbox
+    rpc CreateContainer (CreateContainerRequest) returns (CreateContainerResponse) {}
+    // StartContainer starts the container.
+    rpc StartContainer (StartContainerRequest) returns (StartContainerResponse) {}
+    // StopContainer stops a running container with a grace period (i.e., timeout).
+    // This call is idempotent, and must not return an error if the container has
+    //already been stopped.
+    // TODO: what must the runtime do after the grace period is reached?
+    rpc StopContainer (StopContainerRequest) returns (StopContainerResponse) {}
+    // RemoveContainer removes the container. If the container is running, the
+    //container must be forcibly removed.
+    // This call is idempotent, and must not return an error if the container has
+    //already been removed.
+    rpc RemoveContainer (RemoveContainerRequest) returns (RemoveContainerResponse) {}
+    // ListContainers lists all containers by filters.
+    rpc ListContainers (ListContainersRequest) returns (ListContainersResponse) {}
+    // ContainerStatus returns status of the container. If the container is not
+    //present, returns an error.
+    rpc ContainerStatus (ContainerStatusRequest) returns (ContainerStatusResponse) {}
+    // UpdateContainerResources updates ContainerConfig of the container.
+    rpc UpdateContainerResources (UpdateContainerResourcesRequest) returns (UpdateContainerResourcesResponse) {}
+
+    // ExecSync runs a command in a container synchronously.
+    rpc ExecSync (ExecSyncRequest) returns (ExecSyncResponse) {}
+    // Exec prepares a streaming endpoint to execute a command in the container.
+    rpc Exec (ExecRequest) returns (ExecResponse) {}
+    // Attach prepares a streaming endpoint to attach to a running container.
+    rpc Attach (AttachRequest) returns (AttachResponse) {}
+    // PortForward prepares a streaming endpoint to forward ports from a PodSandbox.
+    rpc PortForward (PortForwardRequest) returns (PortForwardResponse) {}
+
+    // ContainerStats returns stats of the container. If the container does not
+    //exist, the call returns an error.
+    rpc ContainerStats (ContainerStatsRequest) returns (ContainerStatsResponse) {}
+    // ListContainerStats returns stats of all running containers.
+    rpc ListContainerStats (ListContainerStatsRequest) returns (ListContainerStatsResponse) {}
+
+    // UpdateRuntimeConfig updates the runtime configuration based on the given request.
+    rpc UpdateRuntimeConfig (UpdateRuntimeConfigRequest) returns (UpdateRuntimeConfigResponse) {}
+
+    // Status returns the status of the runtime.
+    rpc Status (StatusRequest) returns (StatusResponse) {}
+}
+
+// ImageService defines the public APIs for managing images.
+service ImageService {
+    // ListImages lists existing images.
+    rpc ListImages (ListImagesRequest) returns (ListImagesResponse) {}
+    // ImageStatus returns the status of the image. If the image is not
+    //present, returns a response with ImageStatusResponse.Image set to
+    //nil.
+    rpc ImageStatus (ImageStatusRequest) returns (ImageStatusResponse) {}
+    // PullImage pulls an image with authentication config.
+    rpc PullImage (PullImageRequest) returns (PullImageResponse) {}
+    // RemoveImage removes the image.
+    // This call is idempotent, and must not return an error if the image has
+    //already been removed.
+    rpc RemoveImage (RemoveImageRequest) returns (RemoveImageResponse) {}
+    // ImageFSInfo returns information of the filesystem that is used to store images.
+    rpc ImageFsInfo (ImageFsInfoRequest) returns (ImageFsInfoResponse) {}
+}
+```
+
+Container Runtime 实现了 CRI gRPC Server，包括 RuntimeService 和 ImageService。RuntimeService 提供了对容器和 Pod 运行时（生命周期）管理的 RPC，ImageService 提供了从镜像仓库拉取、查看、和移除镜像的 RPC。gRPC Server 需要监听本地的 Unix socket，而 kubelet 则作为 gRPC Client 运行。
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/k8s/cri-architecture.png" width="600px">
+</div>
+
+#### 容器网络接口
+
+容器网络接口（Container Network Interface），简称 CNI，是 CNCF 旗下的一个项目，由一组用于配置 Linux 容器的网络接口的规范和库组成，同时还包含了一些插件。CNI 仅关心容器创建时的网络分配，和当容器被删除时释放网络资源。有关详情请查看 GitHub。
+
+Kubernetes 源码的 `vendor/github.com/containernetworking/cni/libcni` 目录中已经包含了 CNI 的代码，也就是说 Kubernetes 中已经内置了 CNI。
+
+该接口只有四个方法，添加网络、删除网络、添加网络列表、删除网络列表，接口代码如下：
+
+```go
+type CNI interface {
+    AddNetworkList (net *NetworkConfigList, rt *RuntimeConf) (types.Result, error)
+    DelNetworkList (net *NetworkConfigList, rt *RuntimeConf) error
+    AddNetwork (net *NetworkConfig, rt *RuntimeConf) (types.Result, error)
+    DelNetwork (net *NetworkConfig, rt *RuntimeConf) error
+}
+```
+
+CNI 设计的时候考虑了以下问题：
+
+- 容器运行时必须在调用任何插件之前为容器创建一个新的网络命名空间。
+- 然后，运行时必须确定这个容器应属于哪个网络，并为每个网络确定哪些插件必须被执行。
+- 网络配置采用 JSON 格式，可以很容易地存储在文件中。网络配置包括必填字段，如 name 和 type 以及插件（类型）。网络配置允许字段在调用之间改变值。为此，有一个可选的字段 args，必须包含不同的信息。
+- 容器运行时必须按顺序为每个网络执行相应的插件，将容器添加到每个网络中。
+- 在完成容器生命周期后，运行时必须以相反的顺序执行插件（相对于执行添加容器的顺序）以将容器与网络断开连接。
+- 容器运行时不能为同一容器调用并行操作，但可以为不同的容器调用并行操作。
+- 容器运行时必须为容器订阅 ADD 和 DEL 操作，这样 ADD 后面总是跟着相应的 DEL。 DEL 可能跟着额外的 DEL，但是，插件应该允许处理多个 DEL（即插件 DEL 应该是幂等的）。
+- 容器必须由 ContainerID 唯一标识。存储状态的插件应该使用（网络名称，容器 ID）的主键来完成。
+- 运行时不能调用同一个网络名称或容器 ID 执行两次 ADD（没有相应的 DEL）。换句话说，给定的容器 ID 必须只能添加到特定的网络一次。
+
+CNI 插件必须实现一个可执行文件，这个文件可以被容器管理系统（例如 rkt 或 Kubernetes）调用。CNI 插件负责将网络接口插入容器网络命名空间（例如，veth 对的一端），并在主机上进行任何必要的改变（例如将 veth 的另一端连接到网桥）。然后将 IP 分配给接口，并通过调用适当的 IPAM 插件来设置与 "IP 地址管理" 部分一致的路由。
+
+CNI 插件必须支持以下操作：
+
+- 将容器添加到网络。
+- 从网络中删除容器。
+
+CNI 插件的详细说明请参考：[CNI SPEC](https://github.com/containernetworking/cni/blob/master/SPEC.md) 。
+
+#### 容器存储接口
+
+容器存储接口（Container Storage Interface），简称 CSI，CSI 试图建立一个行业标准接口的规范，借助 CSI 容器编排系统（CO）可以将任意存储系统暴露给自己的容器工作负载。
+
+`csi` 卷类型是一种 out-tree（即跟其它存储插件在同一个代码路径下，随 Kubernetes 的代码同时编译的） 的 CSI 卷插件，用于 Pod 与在同一节点上运行的外部 CSI 卷驱动程序交互。部署 CSI 兼容卷驱动后，用户可以使用 `csi` 作为卷类型来挂载驱动提供的存储。
+
+CSI 持久化卷具有以下字段可供用户指定：
+
+- driver：一个字符串值，指定要使用的卷驱动程序的名称。必须少于 63 个字符，并以一个字符开头。驱动程序名称可以包含 “。”、“ - ”、“_” 或数字。
+- volumeHandle：一个字符串值，唯一标识从 CSI 卷插件的 CreateVolume 调用返回的卷名。随后在卷驱动程序的所有后续调用中使用卷句柄来引用该卷。
+- readOnly：一个可选的布尔值，指示卷是否被发布为只读。默认是 false。
+
+CSI 的详细说明请参考：[CSI SPEC](https://github.com/container-storage-interface/spec/blob/master/spec.md) 。
+
+### Kubernetes 对象
+
+在 Kubernetes 系统中，Kubernetes 对象 是持久化的条目。Kubernetes 使用这些条目去表示整个集群的状态。特别地，它们描述了如下信息：
+
+- 什么容器化应用在运行（以及在哪个 Node 上）。
+- 可以被应用使用的资源。
+- 关于应用如何表现的策略，比如重启策略、升级策略，以及容错策略。
+
+Kubernetes 对象是 “目标性记录” —— 一旦创建对象，Kubernetes 系统将持续工作以确保对象存在。通过创建对象，可以有效地告知 Kubernetes 系统，所需要的集群工作负载看起来是什么样子的，这就是 Kubernetes 集群的 期望状态。
+
+它们可以分为以下几种资源对象：
+
+| 类别	 |  名称   |
+| ------ | -----------------------------------    |
+| 资源对象 | Pod、ReplicaSet、ReplicationController、Deployment、StatefulSet、DaemonSet、Job、CronJob、HorizontalPodAutoscaling、Node、Namespace、Service、Ingress、Label、CustomResourceDefinition |
+| 存储对象 | Volume、PersistentVolume、Secret、ConfigMap |
+| 策略对象 | SecurityContext、ResourceQuota、LimitRange |
+| 身份对象 | ServiceAccount、Role、ClusterRole |
+
+#### Spec 与 Status
+
+每个 Kubernetes 对象包含两个嵌套的对象字段，它们负责管理对象的配置：对象 spec 和 对象 status。spec 必须提供，它描述了对象的 期望状态—— 希望对象所具有的特征。status 描述了对象的 实际状态，它是由 Kubernetes 系统提供和更新。在任何时刻，Kubernetes 控制平面一直处于活跃状态，管理着对象的实际状态以与我们所期望的状态相匹配。
+
+例如，Kubernetes Deployment 对象能够表示运行在集群中的应用。当创建 Deployment 时，可能需要设置 Deployment 的 spec，以指定该应用需要有 3 个副本在运行。Kubernetes 系统读取 Deployment spec，启动我们所期望的该应用的 3 个实例 —— 更新状态以与 spec 相匹配。如果那些实例中有失败的（一种状态变更），Kubernetes 系统通过修正来响应 spec 和状态之间的不一致 —— 这种情况，启动一个新的实例来替换。
+
+关于对象 spec、status 和 metadata 更多信息，查看 [Kubernetes API Conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md) 。
+
+#### 描述 Kubernetes 对象
+
+当创建 Kubernetes 对象时，必须提供对象的 spec，用来描述该对象的期望状态，以及关于对象的一些基本信息（例如，名称）。当使用 Kubernetes API 创建对象时（或者直接创建，或者基于kubectl），API 请求必须在请求体中包含 JSON 格式的信息。更常用的是，需要在 .yaml 文件中为 kubectl 提供这些信息。 kubectl 在执行 API 请求时，将这些信息转换成 JSON 格式。
+
+这里有一个 .yaml 示例文件，展示了 Kubernetes Deployment 的必需字段和对象 spec：
+
+```yaml
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.7.9
+        ports:
+        - containerPort: 80
+```
+
+在想要创建的 Kubernetes 对象对应的 .yaml 文件中，需要配置如下的字段：
+
+- `apiVersion`：创建该对象所使用的 Kubernetes API 的版本。
+- `kind`：想要创建的对象的类型。
+- `metadata`：帮助识别对象唯一性的数据，包括一个 name 字符串、UID 和可选的 namespace。
+
+也需要提供对象的 spec 字段。对象 spec 的精确格式对每个 Kubernetes 对象来说是不同的，包含了特定于该对象的嵌套字段。[Kubernetes API](https://kubernetes.io/docs/concepts/overview/kubernetes-api) 能够帮助我们找到任何我们想创建的对象的 spec 格式。
