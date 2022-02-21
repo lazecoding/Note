@@ -12,3 +12,6 @@
 - [HTTP](https://github.com/lazecoding/Note/blob/main/note/articles/network/HTTP.md)
 - [HTTPS](https://github.com/lazecoding/Note/blob/main/note/articles/network/HTTPS.md)
 - [网络 IO 模型](https://github.com/lazecoding/Note/blob/main/note/articles/network/I0Model.md)
+
+
+- [WebSocket](https://github.com/lazecoding/Note/blob/main/note/articles/network/WebSocket.md)
