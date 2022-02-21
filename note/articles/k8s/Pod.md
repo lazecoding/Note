@@ -6,13 +6,13 @@
     - [Pod 的终止](#Pod-的终止)
   - [Init 容器](#Init-容器)
     - [具体行为](#具体行为)
+  - [Pause 容器](#Pause-容器)
 
 Pod 是 kubernetes 中你可以创建和部署的最小也是最简的单位。Pod 代表着集群中运行的进程。
 
 Pod 中封装着应用的容器（有的情况下是好几个容器），存储、独立的网络 IP，管理容器如何运行的策略选项。Pod 代表着部署的一个单位：kubernetes 中应用的一个实例，可能由一个或者多个容器组合在一起共享资源。Pod 中的容器总是被同时调度，有共同的运行环境。你可以把单个 Pod 想象成是运行独立应用的 “逻辑主机”—— 其中运行着一个或者多个紧密耦合的应用容器 —— 在有容器之前，这些应用都是运行在几个相同的物理机或者虚拟机上。
 
 > Docker 是 kubernetes 中最常用的容器运行时，但是 Pod 也支持其他容器运行时。
-
 
 Pod 是一个服务的多个进程的聚合单位，Pod 提供这种模型能够简化应用部署管理，通过提供一个更高级别的抽象的方式。Pod 作为一个独立的部署单位，支持横向扩展和复制。共生（协同调度），命运共同体（例如被终结），协同复制，资源共享，依赖管理，Pod 都会自动的为容器处理这些问题。
 
@@ -110,3 +110,78 @@ Init 容器具有应用容器的所有字段。除了 readinessProbe，因为 In
 在 Pod 上使用 activeDeadlineSeconds，在容器上使用 livenessProbe，这样能够避免 Init 容器一直失败。 这就为 Init 容器活跃设置了一个期限。
 
 在 Pod 中的每个 app 和 Init 容器的名称必须唯一；与任何其它容器共享同一个名称，会在验证时抛出错误。
+
+### Pause 容器
+
+容器之间原本是被 Linux 的 Namespace 和 cgroups 隔开的，所以 Kubernetes 实际要解决的是怎么去打破这个隔离，然后共享某些事情和某些信息，这就是 Pod 的设计要解决的核心问题所在。
+
+具体的解法分为两个部分：网络和存储，而 `Pause 容器` 就是为解决 Pod 中的网络问题而产生的。
+
+Pause 容器，又叫 Infra 容器，它与用户容器 "捆绑" 运行在同一个 Pod 中。在 Kubernetes 里的解法是这样的：它会在每个 Pod 里，额外起一个 Pause container 小容器来共享整个 Pod 的 Network Namespace。所以说一个 Pod 里面的所有容器，它们看到的网络视图是完全一样的。即：它们看到的网络设备、IP 地址、Mac 地址等等，跟网络相关的信息，其实全是一份，这一份都来自于 Pod 第一次创建的这个 Pause container。也因此整个 Pod 中必然是 Pause container 第一个启动，并且整个 Pod 的生命周期是等同于 Pause container 的生命周期的。这也是为什么在 Kubernetes 里面，它是允许去单独更新 Pod 里的某一个镜像的，即：做这个操作，整个 Pod 不会重建，也不会重启，这是非常重要的一个设计。
+
+
+从网络的角度看，同一个 Pod 中的不同容器犹如在运行在同一个专有主机上，可以通过 localhost 进行通信。原则上，任何人都可以配置 Docker 来控制容器组之间的共享级别——你只需创建一个父容器，并创建与父容器共享资源的新容器，然后管理这些容器的生命周期。在 Kubernetes 中，Pause 容器被当作 Pod 中所有容器的 "父容器" 并为每个业务容器提供以下功能：
+
+kubernetes 中的 Pause 容器主要为每个业务容器提供以下功能：
+
+- 在 Pod 中担任 Linux 命名空间共享的基础。
+- 启用 pid 命名空间，开启 init 进程。
+
+Pause 的功能很轻量，它是一个非常小的镜像，大概 700KB 左右，是一个 C 语言写的、永远处于 "暂停" 状态的容器。
+
+Pause container 源码：
+
+```C
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#define STRINGIFY(x) #x
+#define VERSION_STRING(x) STRINGIFY(x)
+
+#ifndef VERSION
+#define VERSION HEAD
+#endif
+
+static void sigdown(int signo) {
+  psignal(signo, "Shutting down, got signal");
+  exit(0);
+}
+
+static void sigreap(int signo) {
+  while (waitpid(-1, NULL, WNOHANG) > 0)
+    ;
+}
+
+int main(int argc, char **argv) {
+  int i;
+  for (i = 1; i < argc; ++i) {
+    if (!strcasecmp(argv[i], "-v")) {
+      printf("pause.c %s\n", VERSION_STRING(VERSION));
+      return 0;
+    }
+  }
+
+  if (getpid() != 1)
+    /* Not an error because pause sees use outside of infra containers. */
+    fprintf(stderr, "Warning: pause should be the first process\n");
+
+  if (sigaction(SIGINT, &(struct sigaction){.sa_handler = sigdown}, NULL) < 0)
+    return 1;
+  if (sigaction(SIGTERM, &(struct sigaction){.sa_handler = sigdown}, NULL) < 0)
+    return 2;
+  if (sigaction(SIGCHLD, &(struct sigaction){.sa_handler = sigreap,
+                                             .sa_flags = SA_NOCLDSTOP},
+                                             NULL) < 0)
+    return 3;
+
+  for (;;)
+    pause();
+  fprintf(stderr, "Error: infinite loop terminated\n");
+  return 42;
+}
+```
