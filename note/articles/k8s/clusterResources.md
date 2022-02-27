@@ -9,6 +9,9 @@
   - [Label](#Label)
     - [语法和字符集](#语法和字符集)
     - [Label Selector](#Label-Selector)
+  - [Annotation](#Annotation)
+  - [Taint 和 Toleration](#Taint-和-Toleration)
+  - [GC](#GC)
 
 为了管理异构和不同配置的主机，为了便于 Pod 的运维管理，Kubernetes 中提供了很多集群管理的配置和管理功能，通过 namespace 划分的空间，通过为 Node 节点创建 Label 和 Taint 用于 Node 的调度等。
 
@@ -159,3 +162,122 @@ $ kubectl get pods -l 'environment in (production),tier in (frontend)'
 $ kubectl get pods -l 'environment in (production, qa)'
 $ kubectl get pods -l 'environment,environment notin (frontend)'
 ```
+
+### Annotation
+
+Annotation（注解）可以将 Kubernetes 资源对象关联到任意的非标识性元数据，使用客户端（如工具和库）可以检索到这些元数据。
+
+你可以使用标签或注解将元数据附加到 Kubernetes 对象。标签可以用来选择对象和查找满足某些条件的对象集合。相反，注解不用于标识和选择对象。注解中的元数据，可以很小，也可以很大，可以是结构化的，也可以是非结构化的，能够包含标签不允许的字符。
+
+注解和标签一样，是键/值对:
+
+```C
+"metadata": {
+  "annotations": {
+    "key1" : "value1",
+    "key2" : "value2"
+  }
+}
+```
+
+> Map 中的键和值必须是字符串。 换句话说，你不能使用数字、布尔值、列表或其他类型的键或值。
+
+以下是一些例子，用来说明哪些信息可以使用注解来记录:
+
+- 由声明性配置所管理的字段。 将这些字段附加为注解，能够将它们与客户端或服务端设置的默认值、 自动生成的字段以及通过自动调整大小或自动伸缩系统设置的字段区分开来。
+- 构建、发布或镜像信息（如时间戳、发布 ID、Git 分支、PR 数量、镜像哈希、仓库地址）。
+- 指向日志记录、监控、分析或审计仓库的指针。
+- 可用于调试目的的客户端库或工具信息：例如，名称、版本和构建信息。
+- 用户或者工具/系统的来源信息，例如来自其他生态系统组件的相关对象的 URL。
+- 轻量级上线工具的元数据信息：例如，配置或检查点。
+- 负责人员的电话或呼机号码，或指定在何处可以找到该信息的目录条目，如团队网站。
+- 从用户到最终运行的指令，以修改行为或使用非标准功能。
+
+你可以将这类信息存储在外部数据库或目录中而不使用注解，但这样做就使得开发人员很难生成用于部署、管理、自检的客户端共享库和工具。
+
+Label 和 Annotation 都可以将元数据关联到 Kubernetes 资源对象。Label 主要用于选择对象，可以挑选出满足特定条件的对象；相比之下，annotation 不能用于标识及选择对象。
+
+### Taint 和 Toleration
+
+节点亲和性 是 Pod 的一种属性，它使 Pod 被吸引到一类特定的节点 （这可能出于一种偏好，也可能是硬性要求）。污点（Taint）则相反——它使节点能够排斥一类特定的 Pod。容忍度（Toleration）是应用于 Pod 上的，允许（但并不要求）Pod 调度到带有与之匹配的污点的节点上。
+
+污点和容忍度（Toleration）相互配合，可以用来避免 Pod 被分配到不合适的节点上。每个节点上都可以应用一个或多个污点，这表示对于那些不能容忍这些污点的 Pod，是不会被该节点接受的。
+
+#### 使用
+
+您可以使用命令 kubectl taint 给节点增加一个污点。比如，
+
+```C
+kubectl taint nodes node1 key1=value1:NoSchedule
+```
+
+给节点 node1 增加一个污点，它的键名是 key1，键值是 value1，效果是 NoSchedule。这表示只有拥有和这个污点相匹配的容忍度的 Pod 才能够被分配到 node1 这个节点。
+
+若要移除上述命令所添加的污点，你可以执行：
+
+```C
+kubectl taint nodes node1 key1=value1:NoSchedule-
+```
+
+您可以在 PodSpec 中定义 Pod 的容忍度。
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    env: test
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    imagePullPolicy: IfNotPresent
+  tolerations:
+  - key: "example-key"
+    operator: "Exists"
+    effect: "NoSchedule"
+```
+
+一个容忍度和一个污点相 "匹配" 是指它们有 `一样的键名和效果`，并且：
+
+- 如果 operator 是 Exists（此时容忍度不能指定 value）。
+- 如果 operator 是 Equal ，则它们的 value 应该相等。
+
+> 存在两种特殊情况：
+> 
+> 如果一个容忍度的 key 为空且 operator 为 Exists， 表示这个容忍度与任意的 key 、value 和 effect 都匹配，即这个容忍度能容忍任意 taint。 
+> 
+> 如果 effect 为空，则可以与所有键名 key1 的效果相匹配。
+
+通常情况下，如果给一个节点添加了一个 effect 值为 NoExecute 的污点，则任何不能忍受这个污点的 Pod 都会马上被驱逐，任何可以忍受这个污点的 Pod 都不会被驱逐。但是，如果 Pod 存在一个 effect 值为 NoExecute 的容忍度指定了可选属性 tolerationSeconds 的值，则表示在给节点添加了上述污点之后，Pod 还能继续在节点上运行的时间。例如，
+
+```yaml
+tolerations:
+- key: "key1"
+  operator: "Equal"
+  value: "value1"
+  effect: "NoExecute"
+  tolerationSeconds: 3600
+```
+
+这表示如果这个 Pod 正在运行，同时一个匹配的污点被添加到其所在的节点，那么 Pod 还将继续在节点上运行 3600 秒，然后被驱逐。如果在此之前上述污点被删除了，则 Pod 不会被驱逐。
+
+更多内容查看 [污点和容忍度](https://kubernetes.io/zh/docs/concepts/scheduling-eviction/taint-and-toleration/) 。
+
+### GC
+
+GC，Garbage Collection，即垃圾收集。垃圾收集是 Kubernetes 用于清理集群资源的各种机制的统称，垃圾收集允许系统清理如下资源：
+
+- 失败的 Pod。
+- 已完成的 Job。
+- 不再存在属主引用的对象。
+- 未使用的容器和容器镜像。
+- 动态制备的、StorageClass 回收策略为 Delete 的 PV 卷。
+- 阻滞或者过期的 CertificateSigningRequest (CSRs)。
+- 在以下情形中删除了的节点对象：
+  - 当集群使用云控制器管理器运行于云端时。
+  - 当集群使用类似于云控制器管理器的插件运行在本地环境中时。
+- 节点租约对象。
+
+更多内容查看 [垃圾收集](https://kubernetes.io/zh/docs/concepts/architecture/garbage-collection/) 。
