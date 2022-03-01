@@ -5,3 +5,4 @@
 - [集群资源](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/clusterResources.md)
 - [控制器](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/controller.md)
 - [服务发现和路由](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/discoveryRoute.md)
+  - [Service](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/service.md)

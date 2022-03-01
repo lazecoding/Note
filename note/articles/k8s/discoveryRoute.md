@@ -23,3 +23,9 @@ Kubernetes 网络解决四方面的问题：
 - 可以使用 Services 来发布仅供集群内部使用的服务。
 
 > Kubernetes 中为了实现服务实例间的负载均衡和不同服务间的服务发现，创造了 Serivce 对象，同时又为从集群外部访问集群创建了 Ingress 对象。
+
+-------------------------------------------------
+
+更多：
+
+- [Service](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/service.md)
