@@ -29,3 +29,5 @@ Kubernetes 网络解决四方面的问题：
 更多：
 
 - [Service](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/service.md)
+- [Pod 与 Service 的 DNS](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/dnsInK8S.md)
+- [Ingress](https://github.com/lazecoding/Note/blob/main/note/articles/k8s/Ingress.md)
