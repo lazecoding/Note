@@ -111,6 +111,7 @@ Pulsar用 Apache BookKeeper 作为持久化存储。BookKeeper 是一个分布�
 <div align="left">
     <img src="https://github.com/lazecoding/Note/blob/main/images/pulsar/brokers和bookies交互图.png" width="600px">
 </div>
+
 ##### Ledgers
 
 Ledger 是一个只追加的数据结构，并且只有一个写入器，这个写入器负责多个 BookKeeper 存储节点（就是 Bookies）的写入。Ledger 的条目会被复制到多个 Bookies。Ledgers 本身有着非常简单的语义：
@@ -142,7 +143,7 @@ BookKeeper 的日志文件包含事务日志。在更新到 ledger 之前，book
 
 #### 分区
 
-普通的主题仅仅被保存在单个 broker 中，这限制了主题的最大吞吐量。分区实际是通过在底层拥有 N 个内部主题来实现的，这个 N 的数量就是等于分区的数量。当向分区的 topic 发送消息，每条消息被路由到其中一个 broker。Pulsar 自动处理跨 broker 的分区分布。
+普通的主题仅仅被保存在单个 broker 中，这限制了主题的最大吞吐量。分区实际是通过在底层拥有 N 个内部主题来实现的，这个 N 的数量就是等于分区的数量。当向分区的 topic 发送消息，每条消息被路由到其中一个 broker，Pulsar 自动处理跨 broker 的分区分布。
 
 下图展示了分区的生产、消费逻辑：
 
@@ -152,7 +153,7 @@ BookKeeper 的日志文件包含事务日志。在更新到 ledger 之前，book
 
 Topic1 有 5 个分区(P0 到 P4)，划分在 3 个 broker 上。因为分区多于 broker 数量，其中有两个 broker 要处理两个分区。第三个 broker 则只处理一个。（再次强调，分区的分布是 Pulsar 自动处理的）。
 
-这个 topic 的消息被广播给两个 Consumer。路由模式决定将每个消息发布到哪个分区，而订阅类型决定将哪些消息发送到哪个使用者。
+这个 topic 的消息被广播给两个 Consumer。路由模式决定将每个消息发布到哪个分区，而订阅类型决定将哪些消息被哪些消费者消费。
 
 在大多数情况下，可以分别决定路由和订阅模式。通常来讲，吞吐能力的要求，决定了分区/路由的方式。订阅模式则应该由应用的语义来做决定。
 
