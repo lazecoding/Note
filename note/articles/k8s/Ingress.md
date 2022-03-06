@@ -27,7 +27,9 @@ Ingress 是授权入站连接到达集群服务的规则集合。你可以给 In
 
 下面是一个将所有流量都发送到同一 Service 的简单 Ingress 示例：
 
-<我是图>
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/k8s/Ingress流量管理示意图.png" width="600px">
+</div>
 
 Ingress 不会公开任意端口或协议。将 HTTP 和 HTTPS 以外的服务公开到 Internet 时，通常使用 `Service.Type=NodePort` 或 `Service.Type=LoadBalancer` 类型的服务。
 
