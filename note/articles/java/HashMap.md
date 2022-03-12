@@ -3,6 +3,10 @@
 - 目录
     - [HashMap 的数据结构](#HashMap-的数据结构)
     - [执行流程](#执行流程)
+      - [Hash 算法优化](#Hash-算法优化)
+      - [寻址方法优化](#寻址方法优化)
+      - [链表转红黑树](#链表转红黑树)
+    - [思考](#思考)
 
 HashMap 是 Map 接口的实现，此实现提供所有可选的映射操作，但不保证映射的顺序，特别是它不保证该顺序恒久不变，而且 HashMap 非线程安全，即多个线程同时写 HashMap，可能会导致数据的不一致。如果需要满足线程安全，可以用 Collections 的 synchronizedMap 方法使 HashMap 具有线程安全的能力，或者使用 ConcurrentHashMap。
 
