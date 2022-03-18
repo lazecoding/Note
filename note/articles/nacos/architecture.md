@@ -8,7 +8,9 @@
       - [业务层](#业务层)
       - [内核层](#内核层)
       - [插件](#插件)
-
+    - [配置模型](#配置模型)
+      - [配置资源模型](#配置资源模型)
+  
 `Nacos/nɑ:kəʊs/` 是 `Dynamic Naming and Configuration Service` 的首字母简称：`⼀个更易于构建云原生应用的动态服务发现、配置管理和服务管理平台`。
 
 ### 设计原则
@@ -115,3 +117,33 @@
 - 权限管理：解决身份识别，访问控制，角色管理等问题。
 - 审计系统：扩展接口方便与不同公司审计系统打通。
 - 通知系统：核心数据变更，或者操作，方便通过 SMS 系统打通，通知到对应人数据变更。
+
+### 配置模型
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/nacos/Nacos配置基本模型.png" width="600px">
+</div>
+
+上图是 Nacos 配置管理的基础模型：
+
+- Nacos 提供可视化的控制台，可以对配置进行发布、更新、删除、灰度、版本管理等功能。
+- SDK 可以提供发布配置、更新配置、监听配置等功能。
+- SDK 通过 GRPC 长连接监听配置变更，Server 端对比 Client 端配置的 MD5 和本地 MD5 是否相等，不相等推送配置变更。
+- SDK 会保存配置的快照，当服务端出现问题的时候从本地获取。
+
+#### 配置资源模型
+
+Namespace 的设计就是用来进行资源隔离的，我们在进行配置资源的时候可以从以下两个角度来看：
+
+- 从单个租户的角度来看，我们要配置多套环境的配置，可以根据不同的环境来创建 Namespace。比如开发环境、测试环境、生产环境，我们就创建对应的 Namespace（dev、test、prod），Nacos 会自动生成对应的 Namespace Id 。如果同⼀个环境内想配置相同的配置，可以通过 Group 来区分。如下图所示：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/nacos/单个租户配置资源模型.png" width="600px">
+</div>
+
+
+- 从多个租户的角度来看，每个租户都可以有自己的命名空间。我们可以为每个用户创建⼀个命名空间，并给用户分配对应的权限，比如多个租户（zhangsan、lisi、wangwu），每个租户都想有⼀套 自己的多环境配置，也就是每个租户都想配置多套环境。那么可以给每个租户创建⼀个 Namespace（zhangsan、lisi、wangwu）。同样会生成对应的 Namespace Id，然后使用 Group 来区分不同环境的配置。如下图所示：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/nacos/多个租户配置资源模型.png" width="600px">
+</div>
