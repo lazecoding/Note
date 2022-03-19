@@ -24,7 +24,7 @@ CONFIG SET slowlog-max-len 1000
 - 避免使用复杂度较高的命令。
 - 数据少量多次地取，让 Redis 可以及时处理返回。
 
-### 存储大key
+### 存储大 key
 
 如果查询慢日志发现，并不是复杂度较高的命令导致的，例如是 SET、DELETE 操作出现在慢日志记录中，那么就可能存在写入了大 key 的情况。
 
@@ -60,7 +60,7 @@ redis-cli -h $host -p $port --bigkeys -i 0.01
 - 拆分实例，把淘汰 key 的压力分摊到多个实例上。
 - Redis 4.0 以上版本，开启 layz-free 机制，把淘汰 key 释放内存的操作放到后台线程中执行。
 
-### fork耗时严重
+### fork 耗时严重
 
 
 为了保证 Redis 数据的安全性，我们可能会开启后台 RDB 和 AOF rewrite。当 Redis 开启了后台 RDB 和 AOF rewrite 后，在执行时，它们都需要主进程 fork 出一个子进程进行数据的持久化。fork 在执行过程中，主进程需要拷贝自己的内存页表给子进程，如果这个实例很大，那么这个拷贝的过程也会比较耗时。而且这个 fork 过程会消耗大量的 CPU 资源，在完成 fork 之前，整个 Redis 实例会被阻塞住，无法处理任何客户端请求。
@@ -72,7 +72,7 @@ redis-cli -h $host -p $port --bigkeys -i 0.01
 - Redis 实例不要部署在虚拟机上：fork 的耗时也与系统也有关，虚拟机比物理机耗时更久。
 - 降低主从库全量同步的概率：适当调大 repl-backlog-size 参数，避免主从全量同步。
 
-### 开启THP
+### 开启 THP
 
 Linux kernel 在 2.6.38 内核增加了 Transparent Huge Pages (THP) 特性 ，支持大内存页 2MB 分配，默认开启。当开启了 THP 时，fork 的速度会变慢，fork 之后每个内存页从原来 4KB 变为 2MB，会大幅增加重写期间父进程内存消耗。
 
@@ -81,11 +81,11 @@ Linux kernel 在 2.6.38 内核增加了 Transparent Huge Pages (THP) 特性 ，�
 建议：
 - 关闭 Transparent Huge Pages。
 
-### 绑定CPU
+### 绑定 CPU
 
-### 开启AOF
+### 开启 AOF
 
-### 使用Swap
+### 使用 Swap
 
 操作系统为了缓解内存不足对应用程序的影响，允许把一部分内存中的数据换到磁盘上，以达到应用程序对内存使用的缓冲，这些内存数据被换到磁盘上的区域，就是 Swap。
 
