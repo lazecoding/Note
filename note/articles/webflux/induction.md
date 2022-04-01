@@ -1,5 +1,16 @@
 # 入门
 
+- 目录
+  - [组件介绍](#组件介绍)
+    - [HTTPHandler](#HTTPHandler)
+    - [WebHandler](#WebHandler)
+    - [DispatcherHandler](#DispatcherHandler)
+    - [Functional Endpoints](#Functional-Endpoints)
+    - [Reactive Stream](#Reactive-Stream)
+  - [使用范例](使用范例)
+    - [MVC 式](#MVC-式)
+    - [函数式](#函数式)
+
 WebFlux 是 Spring Framework 5.0 中引入的一种新的响应式 Web 框架。通过 Reactor 项目实现 Reactive Streams 规范，完全异步和非阻塞框架。本身不会加快程序执行速度，但在高并发情况下借助异步 IO 能够以少量而稳定的线程处理更高的吞吐，规避文件 IO / 网络 IO 阻塞带来的线程堆积。
 
 > 响应式编程（reactive programming）是一种基于数据流（data stream）和变化传递（propagation of change）的声明式（declarative）的编程范式。
@@ -76,3 +87,66 @@ public RouterFunction<ServerResponse> initRouterFunction() {
 这是一个重要的组件，WebFlux 就是利用 Reactor 来重写了传统 Spring MVC 逻辑。其中 Flux 和 Mono 是 Reactor中两个关键概念。
 
 Flux 和 Mono 都实现了 Reactor 的 Publisher 接口,属于事件发布者，对消费者提供订阅接口，当有事件发生的时候，Flux 或者 Mono 会通过回调消费者的相应的方法来通知消费者相应的事件。其中，Mono 代表 0 到 1 个元素的响应式序列，Flux 代表 0 到 N 个元素的结果。
+
+### 使用范例
+
+Spring 为了让我们更加快速/平滑切换到 WebFlux 上，之前 SpringMVC 的那套用法都是支持的，同时提供函数式编程。
+
+#### MVC 式
+
+```java
+@RestController
+public class DemoController {
+
+    @GetMapping("/demo")
+    public Mono<String> demo(){
+        return Mono.just("demo");
+    }
+}
+```
+
+#### 函数式
+
+首先，创建一个 Route 类来定义路由。
+
+```java
+@Configuration
+public class RouterConfig {
+
+    @Autowired
+    private DemoHandler demoHandler;
+
+    @Bean
+    public RouterFunction<ServerResponse> demoRouter(){
+        //路由函数的编写
+        return route(GET("/hello"),demoHandler::hello)
+                .andRoute(GET("/world"),demoHandler::world)
+                .andRoute(GET("/times"),demoHandler::times);
+    }
+}
+```
+
+请求处理器。
+
+```java
+@Component
+public class DemoHandler {
+
+    public Mono<ServerResponse> hello(ServerRequest request) {
+        return ok().contentType(MediaType.TEXT_PLAIN)
+                .body(Mono.just("hello"), String.class);
+    }
+
+    public Mono<ServerResponse> world(ServerRequest request) {
+        return ok().contentType(MediaType.TEXT_PLAIN)
+                .body(Mono.just("world"), String.class);
+    }
+
+    public Mono<ServerResponse> times(ServerRequest request) {
+        //每隔一秒发送当前的时间
+        return ok().contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(Flux.interval(Duration.ofSeconds(1))
+                        .map(it -> new SimpleDateFormat("HH:mm:ss").format(new Date())), String.class);
+    }
+}
+```
