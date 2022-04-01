@@ -4,6 +4,11 @@ import org.apache.commons.lang3.StringUtils;
 
 /**
  * 进制转换器
+ *
+ * <dependency>
+ *    <groupId>org.apache.commons</groupId>
+ *    <artifactId>commons-lang3</artifactId>
+ * </dependency>
  */
 public enum ConversionUtils {
 
@@ -31,6 +36,16 @@ public enum ConversionUtils {
      * 默认的业务使用的最小长度
      */
     private static final int DEFAULT_MIN_LENGTH = 5;
+
+    /**
+     * 零值
+     */
+    private static final char ZERO_CHAR = CHARS.charAt(0);
+
+    /**
+     * 正则：零值开头
+     */
+    private static final String ZER0_CHAR_REGEX = "^" + ZERO_CHAR + "*";
 
     /**
      * 数字转62进制
@@ -63,7 +78,7 @@ public enum ConversionUtils {
         }
         builder.append(CHARS.charAt(Long.valueOf(num).intValue()));
         String value = builder.reverse().toString();
-        return StringUtils.leftPad(value, size, '0');
+        return StringUtils.leftPad(value, size, ZERO_CHAR);
     }
 
     /**
@@ -73,7 +88,7 @@ public enum ConversionUtils {
      * @return long
      */
     public long decode62(String string) {
-        string = string.replaceAll("^0*", "");
+        string = string.replaceAll(ZER0_CHAR_REGEX, "");
         long value = 0;
         char tempChar;
         int tempCharValue;
