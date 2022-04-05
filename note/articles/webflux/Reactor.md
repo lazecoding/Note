@@ -75,6 +75,8 @@ Reactive Streams 不要求必须使用 Java 8，Reactive Streams 也不是 Java 
 
 Reactive Streams 的实现很多，Reactor 是 Pivotal 提供的 Java 实现，它作为 Spring Framework 5 的重要组成部分，是 WebFlux 采用的默认反应式框架。
 
+> WebFlux 底层使用的是 reactor-netty，而 reactor-netty 依赖 Reactor。
+
 project-pom.xml:
 
 ```xml
@@ -104,6 +106,23 @@ org/springframework/boot/spring-boot-starter-reactor-netty/2.3.5.RELEASE/spring-
   <artifactId>reactor-netty</artifactId>
   <version>0.9.13.RELEASE</version>
   <scope>compile</scope>
+</dependency>
+```
+
+io/projectreactor/netty/reactor-netty/0.9.13.RELEASE/reactor-netty-0.9.13.RELEASE.pom.xml:
+
+```xml
+<dependency>
+  <groupId>io.projectreactor</groupId>
+  <artifactId>reactor-core</artifactId>
+  <version>3.3.11.RELEASE</version>
+  <scope>compile</scope>
+  <exclusions>
+    <exclusion>
+      <artifactId>commons-logging</artifactId>
+      <groupId>commons-logging</groupId>
+    </exclusion>
+  </exclusions>
 </dependency>
 ```
 
