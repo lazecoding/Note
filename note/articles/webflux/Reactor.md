@@ -112,7 +112,7 @@ Reactor 提供了两个非常有用的操作，他们是 Flux 和 Mono。其中 
 Flux 和 Mono 类图：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/webflux/Reactor-Flux和Mono类图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/webflux/Reactor-Flux和Mono类图.png" width="300px">
 </div>
 
 Flux 和 Mono 一样，都是 Publisher 的实现类。
