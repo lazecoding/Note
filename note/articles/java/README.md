@@ -3,6 +3,7 @@
 - [异常](https://github.com/lazecoding/Note/blob/main/note/articles/java/异常.md)
 - [注解](https://github.com/lazecoding/Note/blob/main/note/articles/java/注解.md)
 - [NIO](https://github.com/lazecoding/Note/blob/main/note/articles/java/NIO.md)
+- [Stream](https://github.com/lazecoding/Note/blob/main/note/articles/java/Stream.md)
 
 ## 容器
 
