@@ -3,7 +3,7 @@
 - [什么是服务网格](https://github.com/lazecoding/Note/blob/main/note/articles/servicemesh/what-is-service-mesh.md)
 - [Istio](https://github.com/lazecoding/Note/blob/main/note/articles/servicemesh/istio.md)
 - [Istio 架构](https://github.com/lazecoding/Note/blob/main/note/articles/servicemesh/istio-architecture.md)
-
+- [Sidecar 模式](https://github.com/lazecoding/Note/blob/main/note/articles/servicemesh/Sidecar.md)
 
 ## 外链
 
