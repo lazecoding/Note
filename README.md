@@ -7,6 +7,9 @@
 - [并发编程](https://github.com/lazecoding/Note/blob/main/note/articles/concurrent/README.md)
 - [JVM](https://github.com/lazecoding/Note/blob/main/note/articles/jvm/README.md)
 
+## Go
+
+- [Go 环境安装](https://github.com/lazecoding/Note/blob/main/note/articles/go/go-env-install.md)
 
 ## 框架
 
