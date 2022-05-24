@@ -20,7 +20,7 @@ GOROOT 就是 Go 的安装目录。
 
 GOPATH:
 
-GO 1.13+ 版本使用 GO MODULE 管理项目,不配也罢。
+GO 1.13+ 版本使用 GO MODULE 管理项目,不强制配置 GOPATH。
 
 系统变量 PATH：
 
@@ -41,6 +41,8 @@ go env -w GOBIN=D:\devpath\Golang\Go 1.6\bin
 go env -w GO111MODULE=on
 go env -w GOPROXY=https://goproxy.cn,direct
 ```
+
+> 当 modules 功能启用时，依赖包的存放位置变更为 `$GOPATH/pkg`，允许同一个 package 多个版本并存，且多个项目可以共享缓存的 module。
 
 DEBUG 设置：
 
