@@ -481,7 +481,7 @@ xxx/Yearning.exe --help
 在 Golang 中 DeBUG,需要在 go build 中勾选 `run after build`，而且 Yearning 项目启动需要命令行键入 run，所以还需要再 go build 中为 `Program arguments` 属性设置字符 `run`。
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/go/yearning-debug-setting.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/yearning/yearning-debug-setting.png" width="600px">
 </div>
 
 这样就可以愉快的 DEBUG 了。
