@@ -10,6 +10,7 @@
 ## Go
 
 - [Go 环境安装](https://github.com/lazecoding/Note/blob/main/note/articles/go/go-env-install.md)
+- [Yearning](https://github.com/lazecoding/Note/blob/main/note/articles/yearning/README.md)
 
 ## 框架
 
