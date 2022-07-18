@@ -9,6 +9,11 @@
 - [多机模式](https://github.com/lazecoding/Note/blob/main/note/articles/redis/多机模式.md)
 - [IO 模型](https://github.com/lazecoding/Note/blob/main/note/articles/redis/IO模型.md)
 
+## V5.0
+
+- [Stream](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Stream.md)
+
+
 ## 独立功能
 
 - [事务](https://github.com/lazecoding/Note/blob/main/note/articles/redis/事务.md)
