@@ -13,6 +13,10 @@
 
 - [Stream](https://github.com/lazecoding/Note/blob/main/note/articles/redis/Stream.md)
 
+## V6.0
+
+- [Redis 6.0  总览](https://github.com/lazecoding/Note/blob/main/note/articles/redis/redis-6.md)
+
 
 ## 独立功能
 
