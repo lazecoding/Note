@@ -129,3 +129,44 @@ AUTH <username> <password>
 - `nopass`：移除该用户已设置的所有密码，并将该用户标记为 nopass 无密码状态：任何密码都可以登录。resetpass 命令可以清除nopass这种状态。
 - `resetpass`：情况该用户的所有密码列表。而且移除 nopass 状态。resetpass 之后用户没有关联的密码同时也无法使用无密码登录，因此 resetpass 之后必须添加密码或改为 nopass 状态才能正常登录。
 - `reset`：重置用户状态为初始状态。执行以下操作 resetpass，resetkeys，off，-@all。
+
+### RESP3 协议
+
+RESP（Redis Serialization Protocol）是 Redis 服务端与客户端之间通信的协议。
+
+RESP3 是 RESP version 2 的更新版本。RESP v2 大致从 Redis 2.0 开始支持（其实 1.2 就支持了，只不过 Redis 2.0 是第一个仅支持此协议的版本）。
+
+```C
+127.0.0.1:6379> hello 2
+1) "server"
+2) "Redis"
+3) "version"
+4) "6.0.5"
+5) "proto"
+6) (integer) 2
+7) "id"
+8) (integer) 7
+9) "mode"
+10) "standalone"
+11) "role"
+12) "master"
+13) "modules"
+14) (empty array)
+127.0.0.1:6379> hello 3
+1# "server" => "Redis" // 服务名称
+2# "version" => "6.0.5" // 版本号
+3# "proto" => (integer) 3 // 支持的最高协议
+4# "id" => (integer) 7 // 客户端连接 ID
+5# "mode" => "standalone" //  模式："standalone", "sentinel", "cluster"
+6# "role" => "master" //  "master" 或 "replica"
+7# "modules" => (empty array) // 加载的模块列表
+```
+
+点击 [RESP version 1](https://github.com/lazecoding/Note/blob/main/note/articles/redis/客户端和服务器.md#通信协议) 了解更多。
+
+### 客户端缓存
+
+Redis 客户端（Client side caching）缓存在某些方面进行了重新设计，特别是放弃了缓存槽（caching slot）方法而只使用 key 的名称。在分析了备选方案之后，在其他 Redis 核心团队成员的帮助下，这种方法最终看起来更好。
+
+客户端缓存重新设计中引入了广播模式（broadcasting mode）。在使用广播模式时，服务器不再尝试记住每个客户端请求的 key。取而代之的是，客户订阅 key 的前缀：每次修改匹配前缀的 key 时，这些订阅的客户端都会收到通知。这意味着会产生更多的消息（仅适用于匹配的前缀），但服务器端无需进行任何内存操作。
+
