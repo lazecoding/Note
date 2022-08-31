@@ -3,10 +3,14 @@
 - 目录
   - [众多新模块 API](#众多新模块-API)
   - [更好的过期循环](#更好的过期循环)
-  - [支持 SSL](#支持 SSL)
+  - [支持 SSL](#支持-SSL)
   - [ACLs 权限控制](#ACLs-权限控制)
     - [ACL 使用](#ACL-使用)
     - [ACL 规则](#ACL-规则)
+  - [RESP3 协议](#RESP3-协议)
+  - [客户端缓存](#客户端缓存)
+  - [多线程 IO](#多线程-IO)
+  - [其余特性](#其余特性)
 
 本文总览 Redis 6.0 新特性。
 
@@ -170,3 +174,91 @@ Redis 客户端（Client side caching）缓存在某些方面进行了重新设�
 
 客户端缓存重新设计中引入了广播模式（broadcasting mode）。在使用广播模式时，服务器不再尝试记住每个客户端请求的 key。取而代之的是，客户订阅 key 的前缀：每次修改匹配前缀的 key 时，这些订阅的客户端都会收到通知。这意味着会产生更多的消息（仅适用于匹配的前缀），但服务器端无需进行任何内存操作。
 
+### 多线程 IO
+
+在 Redis 6 之前，Redis 通过单线程来处理网络请求和命令执行，具体分析可以点击查看 [事件驱动](https://github.com/lazecoding/Note/blob/main/note/articles/redis/事件驱动.md) 。
+
+Redis 6 引入多线程 IO（Threaded I/O），但多线程部分只是用来处理网络数据的读写和协议解析，执行命令仍然是单线程。之所以这么设计是不想因为多线程而变得复杂，需要去控制 key、lua、事务、LPUSH/LPOP 等并发问题。
+
+默认情况下，Redis多线程是禁用的，我们可以在配置文件 `redis.conf` 开启：
+
+```C
+# 开启多线程 IO
+io-threads-do-reads yes
+ 
+# 配置线程数量，如果设为 1 就是主线程模式。
+io-threads 4
+```
+
+多线程下数据交互关系：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/多线程下数据交互关系.png" width="600px">
+</div>
+
+多线程下执行流程：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/redis/多线程下执行流程.png" width="600px">
+</div>
+
+流程简述：
+
+- 主线程负责接收建立连接请求，获取 socket 放入全局等待读处理队列。
+- 主线程处理完读事件之后，通过 RR(Round Robin) 将这些连接分配给这些 IO 线程。
+- 主线程阻塞等待 IO 线程读取 socket 完毕。
+- 主线程通过单线程的方式执行请求命令，请求数据读取并解析完成，但并不执行。
+- 主线程阻塞等待 IO 线程将数据回写 socket 完毕。
+- 解除绑定，清空等待队列。
+
+特点：
+
+- IO 线程要么同时在读 socket，要么同时在写，不会同时读或写（我觉得是为了避免处理读写并发的安全问题）。
+- IO 线程只负责读写 socket 解析命令，不负责命令处理。
+
+### 其余特性
+
+#### 无盘复制和 PSYNC2
+
+现在，Redis 用于复制的 RDB 文件如果不再有用，将立即被删除。不过，在某些环境中，最好不要将数据放在磁盘上，而只放在内存中。
+
+```C
+repl-diskless-sync no
+repl-diskless-sync-delay 5
+repl-diskless-load disabled
+```
+
+复制协议 PSYNC2 现在得到了改进。Redis 将能够更频繁地部分重新同步，因为它能够修整协议中的最终 PING，从而使副本和主副本更有可能找到一个公共的偏移量。
+
+#### Redis-benchmark 支持集群
+
+#### Redis-cli 优化
+
+#### 重写 Systemd 支持
+
+#### Redis 集群代理
+
+Redis 集群代理与 Redis 6 一同发布（但在不同的 repo）。
+
+在 Redis 集群中，客户端会非常分散，Redis 6 为此引入了一个集群代理，可以为客户端抽象 Redis 群集，使其像正在与单个实例进行对话一样。同时在简单且客户端仅使用简单命令和功能时执行多路复用。
+
+#### RDB 更快加载
+
+Redis 6.0，RDB 文件的加载速度比之前变得更快了。根据文件的实际组成（较大或较小的值），大概可以获得 20-30％ 的改进。除此之外，INFO 也变得更快了，当有许多客户端连接时，这会消耗很多时间，不过现在终于消失了。
+
+#### SRANDMEMBER 和类似的命令具有更好的分布
+
+#### STRALGO 命令
+
+STRALGO 实现了复杂的字符串算法，目前唯一实现的是 LCS（最长的公共子序列）。
+
+```C
+127.0.0.1:6379> STRALGO LCS keys name zijie
+"1"
+127.0.0.1:6379> STRALGO LCS keys name zijie  len
+(integer) 1
+```
+
+#### 带有超时的 Redis 命令
+
+除了 BLPOP 命令，其他用于接受秒的命令现在都接受十进制数字，而且实际分辨率也得到了改进，以使其永远不会比当前的“HZ”值更差，因为其不管连接客户端的数量。
