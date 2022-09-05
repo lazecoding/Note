@@ -9,7 +9,7 @@ ChannelFuture 继承了 Netty 的 Future，Netty 的 Future 继承了 JDK 的 Fu
 ChannelFuture 类图：
 
 <div align="left">
-    <img src="https://github.com/lazecoding/Note/blob/main/images/network/ChannelFuture类图.png" width="600px">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/netty/ChannelFuture类图.png" width="600px">
 </div>
 
 Netty 的 Future，在继承 JDK 的 Future 基础上，扩展了自己的方法：
