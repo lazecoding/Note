@@ -11,3 +11,7 @@
 - [NioEventLoopGroup 和 NioEventLoop](https://github.com/lazecoding/Note/blob/main/note/articles/netty/NioEventLoopInGroup.md)
 - [Channel](https://github.com/lazecoding/Note/blob/main/note/articles/netty/Channel.md)
 - [ChannelPipeline](https://github.com/lazecoding/Note/blob/main/note/articles/netty/ChannelPipeline.md)
+
+## Tips
+
+- [Future](https://github.com/lazecoding/Note/blob/main/note/articles/netty/future.md)
