@@ -1,5 +1,9 @@
 # Future
 
+- 目录
+  - [ChannelFuture](#ChannelFuture)
+  - [Promise](#Promise)
+
 在 Netty 中所有的 IO 操作都是异步的，不能立刻得到 IO 操作的执行结果，但是可以通过注册一个监听器来监听其执行结果。在 Java 的并发编程当中可以通过 Future 来进行异步结果的监听，但是在 Netty 当中是通过 ChannelFuture 来实现异步结果的监听。通过注册一个监听的方式进行监听，当操作执行成功或者失败时监听会自动触发注册的监听事件。
 
 ### ChannelFuture
@@ -305,6 +309,145 @@ ChannelFuture 只有两种状态 Uncompleted（未完成）和 Completed（完�
 
 > Netty 的 Future 继承 JDK 的 Future，通过 Object 的 wait/notify 机制，实现了线程间的同步；使用观察者设计模式，实现了异步非阻塞回调处理。
 
+### Promise
+
+Promise 是 Future 的一个子接口 ，它是个可写的 Future。
+
+Promise 接口：
+
+```java
+// io.netty.util.concurrent.Promise.java
+/**
+ * Special {@link Future} which is writable.
+ */
+public interface Promise<V> extends Future<V> {
+
+    /**
+     * Marks this future as a success and notifies all
+     * listeners.
+     *
+     * If it is success or failed already it will throw an {@link IllegalStateException}.
+     */
+    Promise<V> setSuccess(V result);
+
+    /**
+     * Marks this future as a success and notifies all
+     * listeners.
+     *
+     * @return {@code true} if and only if successfully marked this future as
+     *         a success. Otherwise {@code false} because this future is
+     *         already marked as either a success or a failure.
+     */
+    boolean trySuccess(V result);
+
+    /**
+     * Marks this future as a failure and notifies all
+     * listeners.
+     *
+     * If it is success or failed already it will throw an {@link IllegalStateException}.
+     */
+    Promise<V> setFailure(Throwable cause);
+
+    /**
+     * Marks this future as a failure and notifies all
+     * listeners.
+     *
+     * @return {@code true} if and only if successfully marked this future as
+     *         a failure. Otherwise {@code false} because this future is
+     *         already marked as either a success or a failure.
+     */
+    boolean tryFailure(Throwable cause);
+
+    /**
+     * Make this future impossible to cancel.
+     *
+     * @return {@code true} if and only if successfully marked this future as uncancellable or it is already done
+     *         without being cancelled.  {@code false} if this future has been cancelled already.
+     */
+    boolean setUncancellable();
+
+    @Override
+    Promise<V> addListener(GenericFutureListener<? extends Future<? super V>> listener);
+
+    @Override
+    Promise<V> addListeners(GenericFutureListener<? extends Future<? super V>>... listeners);
+
+    @Override
+    Promise<V> removeListener(GenericFutureListener<? extends Future<? super V>> listener);
+
+    @Override
+    Promise<V> removeListeners(GenericFutureListener<? extends Future<? super V>>... listeners);
+
+    @Override
+    Promise<V> await() throws InterruptedException;
+
+    @Override
+    Promise<V> awaitUninterruptibly();
+
+    @Override
+    Promise<V> sync() throws InterruptedException;
+
+    @Override
+    Promise<V> syncUninterruptibly();
+}
+```
+
+Future 接口只提供了获取返回值的 get()方法，不可设置返回值。Promise 接口在 Future 基础上，还提供了设置返回值和异常信息，并立即通知 listeners。而且，一旦 setSuccess(...) 或 setFailure(...) 后，那些 await() 或 sync() 的线程就会从等待中返回。
+
+接下来，让我们来看看 ChannelFuture 的可写的子接口 ChannelPromise：
+
+```java
+// io.netty.channel.ChannelPromise.java
+/**
+ * Special {@link ChannelFuture} which is writable.
+ */
+public interface ChannelPromise extends ChannelFuture, Promise<Void> {
+
+    @Override
+    Channel channel();
+
+    @Override
+    ChannelPromise setSuccess(Void result);
+
+    ChannelPromise setSuccess();
+
+    boolean trySuccess();
+
+    @Override
+    ChannelPromise setFailure(Throwable cause);
+
+    @Override
+    ChannelPromise addListener(GenericFutureListener<? extends Future<? super Void>> listener);
+
+    @Override
+    ChannelPromise addListeners(GenericFutureListener<? extends Future<? super Void>>... listeners);
+
+    @Override
+    ChannelPromise removeListener(GenericFutureListener<? extends Future<? super Void>> listener);
+
+    @Override
+    ChannelPromise removeListeners(GenericFutureListener<? extends Future<? super Void>>... listeners);
+
+    @Override
+    ChannelPromise sync() throws InterruptedException;
+
+    @Override
+    ChannelPromise syncUninterruptibly();
+
+    @Override
+    ChannelPromise await() throws InterruptedException;
+
+    @Override
+    ChannelPromise awaitUninterruptibly();
+
+    /**
+     * Returns a new {@link ChannelPromise} if {@link #isVoid()} returns {@code true} otherwise itself.
+     */
+    ChannelPromise unvoid();
+}
+```
+
+可见，ChannelPromise 接口只是综合了 ChannelFuture 和 Promise 接口，没有新增功能。
 
 
 
