@@ -3,6 +3,7 @@
 - 目录
   - [ChannelFuture](#ChannelFuture)
   - [Promise](#Promise)
+  - [DefaultChannelPromise](#DefaultChannelPromise)
 
 在 Netty 中所有的 IO 操作都是异步的，不能立刻得到 IO 操作的执行结果，但是可以通过注册一个监听器来监听其执行结果。在 Java 的并发编程当中可以通过 Future 来进行异步结果的监听，但是在 Netty 当中是通过 ChannelFuture 来实现异步结果的监听。通过注册一个监听的方式进行监听，当操作执行成功或者失败时监听会自动触发注册的监听事件。
 
@@ -449,6 +450,221 @@ public interface ChannelPromise extends ChannelFuture, Promise<Void> {
 
 可见，ChannelPromise 接口只是综合了 ChannelFuture 和 Promise 接口，没有新增功能。
 
+### DefaultChannelPromise
 
+DefaultChannelPromise 是同时实现了 ChannelFuture 和 Promise 两个接口的实现类。
 
+DefaultChannelPromise 类图：
 
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/netty/DefaultChannelPromise类图.png" width="600px">
+</div>
+
+DefaultChannelPromise 类：
+
+```java
+// io.netty.channel.DefaultChannelPromise.java
+/**
+ * The default {@link ChannelPromise} implementation.  It is recommended to use {@link Channel#newPromise()} to create
+ * a new {@link ChannelPromise} rather than calling the constructor explicitly.
+ */
+public class DefaultChannelPromise extends DefaultPromise<Void> implements ChannelPromise, FlushCheckpoint {
+
+    private final Channel channel;
+    private long checkpoint;
+
+    /**
+     * Creates a new instance.
+     *
+     * @param channel
+     *        the {@link Channel} associated with this future
+     */
+    public DefaultChannelPromise(Channel channel) {
+        this.channel = checkNotNull(channel, "channel");
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param channel
+     *        the {@link Channel} associated with this future
+     */
+    public DefaultChannelPromise(Channel channel, EventExecutor executor) {
+        super(executor);
+        this.channel = checkNotNull(channel, "channel");
+    }
+
+    @Override
+    protected EventExecutor executor() {
+        EventExecutor e = super.executor();
+        if (e == null) {
+            return channel().eventLoop();
+        } else {
+            return e;
+        }
+    }
+
+    @Override
+    public Channel channel() {
+        return channel;
+    }
+
+    @Override
+    public ChannelPromise setSuccess() {
+        return setSuccess(null);
+    }
+
+    @Override
+    public ChannelPromise setSuccess(Void result) {
+        super.setSuccess(result);
+        return this;
+    }
+
+    @Override
+    public boolean trySuccess() {
+        return trySuccess(null);
+    }
+
+    @Override
+    public ChannelPromise setFailure(Throwable cause) {
+        super.setFailure(cause);
+        return this;
+    }
+
+    @Override
+    public ChannelPromise addListener(GenericFutureListener<? extends Future<? super Void>> listener) {
+        super.addListener(listener);
+        return this;
+    }
+
+    @Override
+    public ChannelPromise addListeners(GenericFutureListener<? extends Future<? super Void>>... listeners) {
+        super.addListeners(listeners);
+        return this;
+    }
+
+    @Override
+    public ChannelPromise removeListener(GenericFutureListener<? extends Future<? super Void>> listener) {
+        super.removeListener(listener);
+        return this;
+    }
+
+    @Override
+    public ChannelPromise removeListeners(GenericFutureListener<? extends Future<? super Void>>... listeners) {
+        super.removeListeners(listeners);
+        return this;
+    }
+
+    @Override
+    public ChannelPromise sync() throws InterruptedException {
+        super.sync();
+        return this;
+    }
+
+    @Override
+    public ChannelPromise syncUninterruptibly() {
+        super.syncUninterruptibly();
+        return this;
+    }
+
+    @Override
+    public ChannelPromise await() throws InterruptedException {
+        super.await();
+        return this;
+    }
+
+    @Override
+    public ChannelPromise awaitUninterruptibly() {
+        super.awaitUninterruptibly();
+        return this;
+    }
+
+    @Override
+    public long flushCheckpoint() {
+        return checkpoint;
+    }
+
+    @Override
+    public void flushCheckpoint(long checkpoint) {
+        this.checkpoint = checkpoint;
+    }
+
+    @Override
+    public ChannelPromise promise() {
+        return this;
+    }
+
+    @Override
+    protected void checkDeadLock() {
+        if (channel().isRegistered()) {
+            super.checkDeadLock();
+        }
+    }
+
+    @Override
+    public ChannelPromise unvoid() {
+        return this;
+    }
+
+    @Override
+    public boolean isVoid() {
+        return false;
+    }
+}
+```
+
+父类 DefaultPromise 中使用的方法：
+
+```java
+// io/netty/util/concurrent/DefaultPromise.java#setSuccess
+@Override
+public Promise<V> setSuccess(V result) {
+    if (setSuccess0(result)) {
+        return this;
+    }
+    throw new IllegalStateException("complete already: " + this);
+}
+
+// io/netty/util/concurrent/DefaultPromise.java#setValue0
+private boolean setValue0(Object objResult) {
+    // CAS 设置 result 值，只有当 result 为 null 或者 UNCANCELLABLE，才可以执行成功
+    if (RESULT_UPDATER.compareAndSet(this, null, objResult) ||
+        RESULT_UPDATER.compareAndSet(this, UNCANCELLABLE, objResult)) {
+        // 唤醒等待的waiter，同时判断是否存在listener
+        if (checkNotifyWaiters()) {
+            // 通知所有的listener
+            notifyListeners();
+        }
+        return true;
+    }
+    return false;
+}
+
+// io/netty/util/concurrent/DefaultPromise.java#notifyListeners
+private void notifyListeners() {
+    EventExecutor executor = executor();
+    // 是否是同一个线程
+    if (executor.inEventLoop()) {
+        final InternalThreadLocalMap threadLocals = InternalThreadLocalMap.get();
+        final int stackDepth = threadLocals.futureListenerStackDepth();
+        if (stackDepth < MAX_LISTENER_STACK_DEPTH) {
+            threadLocals.setFutureListenerStackDepth(stackDepth + 1);
+            try {
+                notifyListenersNow();
+            } finally {
+                threadLocals.setFutureListenerStackDepth(stackDepth);
+            }
+            return;
+        }
+    }
+    // 用自己的executor执行
+    safeExecute(executor, new Runnable() {
+        @Override
+        public void run() {
+            notifyListenersNow();
+        }
+    });
+}
+```
+
+DefaultChannelPromise 的方法实现逻辑挺简单，核心就是通过 Object 的 wait/notify 机制实现线程间的同步和观察者设计模式进行通知，实现异步非阻塞回调处理。
