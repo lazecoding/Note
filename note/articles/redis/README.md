@@ -16,6 +16,7 @@
 ## V6.0
 
 - [Redis 6.0  总览](https://github.com/lazecoding/Note/blob/main/note/articles/redis/redis-6.md)
+- [多线程 IO](https://github.com/lazecoding/Note/blob/main/note/articles/redis/threads-io.md)
 
 
 ## 独立功能
