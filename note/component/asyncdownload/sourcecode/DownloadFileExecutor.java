@@ -32,12 +32,13 @@ public class DownloadFileExecutor {
      * @param task 待执行任务
      */
     public static void doDelayTask(Runnable task) {
-        downloadFileDelayExecutor.scheduleWithFixedDelay(new Runnable() {
+        downloadFileAsynExecutor.schedule(new Runnable() {
             @Override
             public void run() {
                 task.run();
             }
-        }, DELAYTIME, DELAYTIME, TimeUnit.SECONDS);
+        }, delayTime, TimeUnit.SECONDS);
+;
     }
 
     /**
