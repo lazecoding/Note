@@ -62,9 +62,7 @@
 - [限流](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/限流.md)
 - [服务熔断和降级](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/服务熔断和降级.md)
 - [分库分表](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/分库分表.md)
-<!--
 - [分布式存储系统](https://github.com/lazecoding/Note/blob/main/note/articles/systemdesign/分布式存储系统.md)
--->
 
 ## 云原生
 
