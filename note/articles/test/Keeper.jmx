@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.4.1">
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">
   <hashTree>
     <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="WebSocket" enabled="true">
       <stringProp name="TestPlan.comments"></stringProp>
@@ -18,8 +18,8 @@
           <boolProp name="LoopController.continue_forever">false</boolProp>
           <intProp name="LoopController.loops">-1</intProp>
         </elementProp>
-        <stringProp name="ThreadGroup.num_threads">10000</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">60</stringProp>
+        <stringProp name="ThreadGroup.num_threads">100</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">10</stringProp>
         <boolProp name="ThreadGroup.scheduler">false</boolProp>
         <stringProp name="ThreadGroup.duration"></stringProp>
         <stringProp name="ThreadGroup.delay"></stringProp>
@@ -27,13 +27,13 @@
       </ThreadGroup>
       <hashTree>
         <eu.luminis.jmeter.wssampler.OpenWebSocketSampler guiclass="eu.luminis.jmeter.wssampler.OpenWebSocketSamplerGui" testclass="eu.luminis.jmeter.wssampler.OpenWebSocketSampler" testname="WebSocket Open Connection" enabled="true">
-          <boolProp name="TLS">true</boolProp>
-          <stringProp name="server">domain.com</stringProp>
-          <stringProp name="port"></stringProp>
-          <stringProp name="path">/keeper-websocket/ws?LI=06ab23169979461dbd23ed55bc284d39</stringProp>
+          <boolProp name="TLS">false</boolProp>
+          <stringProp name="server">127.0.0.1</stringProp>
+          <stringProp name="port">9966</stringProp>
+          <stringProp name="path">ws?U=06ab23169979461dbd23ed55bc284d39</stringProp>
           <stringProp name="connectTimeout">999999</stringProp>
           <stringProp name="readTimeout">6000</stringProp>
-          <stringProp name="TestPlan.comments">wss://domain.com/keeper-websocket/ws?LI=06ab23169979461dbd23ed55bc284d39
+          <stringProp name="TestPlan.comments">
 
 </stringProp>
         </eu.luminis.jmeter.wssampler.OpenWebSocketSampler>
