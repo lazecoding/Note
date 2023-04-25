@@ -5,6 +5,44 @@
     <!-- @author lazecoding -->
     <meta charset="UTF-8">
     <title>WebSocket 客户端</title>
+    <style>
+        html {
+            font-family: sans-serif;
+        }
+
+        table {
+            border-collapse: collapse;
+            border: 2px solid rgb(200, 200, 200);
+            letter-spacing: 1px;
+            font-size: 0.8rem;
+        }
+
+        td,
+        th {
+            border: 1px solid rgb(190, 190, 190);
+            padding: 10px 20px;
+        }
+
+        th {
+            background-color: rgb(235, 235, 235);
+        }
+
+        td {
+            text-align: center;
+        }
+
+        tr:nth-child(even) td {
+            background-color: rgb(250, 250, 250);
+        }
+
+        tr:nth-child(odd) td {
+            background-color: rgb(245, 245, 245);
+        }
+
+        caption {
+            padding: 10px;
+        }
+    </style>
 </head>
 
 <body>
@@ -15,8 +53,10 @@
     function content() {
         //如果浏览器支持WebSocket
         if (window.WebSocket) {
+            var type = document.getElementById("protocolType").value;
+            var wsurl = document.getElementById("wsurl").value;
 
-            var url = document.getElementById("wsurl").value;
+            var url = type + '://' + wsurl;
 
             // 如果链接已经开启，就不创建新的连接
             if (socket != undefined && socket != null && socket.readyState == WebSocket.OPEN) {
@@ -84,22 +124,41 @@
 </script>
 
 
-<form onsubmit="return false">
+<div>
+    <form onsubmit="return false">
 
-    <h3>连接管理：</h3>
-    <input type="text" id="wsurl" value="ws://localhost:9911/chat">
-    <button onclick="content();">建立链接</button>
-    <button onclick="closed();">断开链接</button>
+        <h3>WebSocket 客户端</h3>
 
-    <h3>客户端输入：</h3>
-    <textarea name="message" style="width: 400px;height: 200px"></textarea>
-    <input type="button" value="发送数据" onclick="send(this.form.message.value);">
+        <select id="protocolType" name="protocolType">
+            <option value="ws" selected>ws</option>
+            <option value="wss">wss</option>
+        </select>
+        ://
+        <input type="text" id="wsurl" style="width: 675px;" value="">
+        <button onclick="content();">建立链接</button>
+        <button onclick="closed();">断开链接</button>
 
-    <h3>服务器输出：</h3>
-    <textarea id="responseText" style="width: 400px;height: 300px;"></textarea>
-    <input type="button" onclick="javascript:document.getElementById('responseText').value=''" value="清空数据">
+        <br><br>
 
-</form>
+        <table>
+            <tr>
+                <td>Request</td>
+                <td>Response</td>
+            </tr>
+            <tr>
+                <td><textarea name="message" style="width: 400px;height: 200px"></textarea></td>
+                <td><textarea id="responseText" style="width: 400px;height: 200px;"></textarea></td>
+            </tr>
+            <tr>
+                <td><input type="button" value="发送 Request" onclick="send(this.form.message.value);"></td>
+                <td><input type="button" onclick="javascript:document.getElementById('responseText').value=''"
+                           value="清空 Response"></td>
+            </tr>
+        </table>
+    </form>
+</div>
+
+
 </body>
 
 </html>
