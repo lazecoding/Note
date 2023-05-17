@@ -116,8 +116,7 @@ db.person.insert({
     ObjectId("4e54ed9f48dc5922c0094a41")
   ]
 });
-​
-​
+
 //groups 
 db.groups.insert({
   "_id": ObjectId("4e54ed9f48dc5922c0094a42"),
