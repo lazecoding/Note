@@ -9,8 +9,6 @@
 MySQL 作为关系型数据库，有二个实体： people 和 passports，这二个实体对应的二张表，`就是一对多（people-passports) 的映射关系`。
 
 ```sql
-MySQL作为关系型数据库，有二个实体： people和passports，这二个实体对应的二张表，就是一对多（people-passports) 的映射关系。
-
 mysql> select * from people;
 +----+------------+
 | id | name       |
