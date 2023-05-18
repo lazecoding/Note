@@ -130,6 +130,37 @@ db.groups.insert({
 
 > 对于一对多的MySQL模型，MongoDB使用单向嵌套解决方案；对于多对多的MySQL模型，MongoDB使用双向嵌套解决方案。
 
+## 索引结构： B Tree VS. B+ Tree
+
+B 树：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/mysql/B树.png" width="600px">
+</div>
+
+B+ 树：
+
+<div align="left">
+    <img src="https://github.com/lazecoding/Note/blob/main/images/mysql/B+树.png" width="600px">
+</div>
+
+- B 树中: key-value 同时存储在内部节点和叶子节点中。
+- 在 B+ 树中: key-value 只存储在叶子节点上，而内部节点只存储 key 用来索引检索功能。
+- 在 B+ 树中，叶子节点数据按顺序链表排序，但在 B 树中，叶子节点不能使用链表存储。
+
+`MongoDB 的索引采用的是 B 树，而 MySQL 索引采纳的是 B+ 树`。
+
+在现实生活中，`B 树和 B+ 树被用来建立海量数据的索引，从而使数据库中的搜索操作变得高效`。但还是有一些典型的差别。我们以 MySQL 与 MongoDB 的索引结构来说明。
+
+B+ 树与 B 树中存在一个非常大的区别：
+
+- B+ 树的叶子节点是链表有序的，因此对所有键进行线性扫描只需要通过所有叶子节点一次。
+- 另一方面，一个B树需要遍历树中的每个级别。
+
+MySQL 索引背后 B+ 树结构的选择，让它更容易，更高效执行对范围区间扫描；而 MongoDB 索引必须对完整树遍历才能完整扫描。
+
+- MySQL 查询中经常涉及到多表查询，背后会使用范围区间扫描。因此，MySQL 索引选择的 B+ 树，对范围区间扫描的需求给出了设计与实现上的支持（叶子节点链表有序组织)。
+- 而 MongoDB 本身设计原则，它通过嵌套方式，以面向对象组合多个模型在一个集合 collection 中，尽可能避免检索 JOIN 多个 collection 操作。因此，MongoDB 索引选择的 B 树，弱化对范围区间扫描的需求的支持。
 
 
 
