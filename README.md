@@ -12,6 +12,11 @@
 - [Go 环境安装](https://github.com/lazecoding/Note/blob/main/note/articles/go/go-env-install.md)
 - [Yearning](https://github.com/lazecoding/Note/blob/main/note/articles/yearning/README.md)
 
+## Python
+
+- [Python 环境安装](https://github.com/lazecoding/Note/blob/main/note/articles/python/python-env-install.md)
+
+
 ## 框架
 
 - [Spring Boot](https://github.com/lazecoding/Note/blob/main/note/articles/springboot/README.md)
