@@ -26,6 +26,7 @@
         - [RedissonMultiLock](#RedissonMultiLock)
         - [RedissonRedLock](#RedissonRedLock)
         - [同步工具](#同步工具)
+    - [配置](#配置)
     - [分布式服务](#分布式服务)
 
 Redisson 是一个在 Redis 的基础上实现的 Java 驻内存数据网格（In-Memory Data Grid）。它提供了一系列常用的分布式的 Java 对象和许多分布式服务。
@@ -809,6 +810,30 @@ if (hasLock) {
 #### 同步工具
 
 Redisson 还提供了 RSemaphore 和 RCountDownLatch，作为 Semaphore 和 CountDownLatch 的分布式实现。
+
+### 配置
+
+#### 线程池配置
+
+- threads：业务线程池大小, 处理所有 Redisson 的业务任务，包括 RTopic 的消息监听、RRemoteService 的调用以及 RExecutorService 的任务执行。
+- nettyThreads：设置 Netty I/O 线程池大小, 由 Netty 提供，负责处理所有与 Redis 服务器之间的网络通信（连接、读写），这是 Redisson 性能的关键。
+
+```java
+public static RedissonClient createClient() {
+    // 获取 CPU 核心数
+    int cpuCores = Runtime.getRuntime().availableProcessors();
+    // 设置业务线程池大小, 处理所有 Redisson 的业务任务，包括 RTopic 的消息监听、RRemoteService 的调用以及 RExecutorService 的任务执行。
+    config.setThreads(cpuCores);
+    // 设置 Netty I/O 线程池大小, 由 Netty 提供，负责处理所有与 Redis 服务器之间的网络通信（连接、读写）。这是 Redisson 性能的关键。
+    config.setNettyThreads(cpuCores * 2);
+    // 传输模式，默认NIO，设置为EPOLL模式，需要引入netty-transport-native-epoll依赖
+    config.setTransportMode(TransportMode.NIO);
+    // 事件处理线程
+    config.setEventLoopGroup(new NioEventLoopGroup(16));
+    // ... 其它配置
+    return Redisson.create(config);
+}
+```
 
 ### 分布式服务
 
