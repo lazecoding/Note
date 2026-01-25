@@ -405,7 +405,8 @@ public void lock() {
 }
 ```
 
-RedissonLock.lock() 是不具备 TTL 的，即没有超时时间，所以 leaseTime 传参 -1。
+RedissonLock.lock() 中 leaseTime 传参 -1，这是 Redisson 内部用来触发“看门狗（Watchdog）”自动续期机制的标志。
+具体来说，加锁后每 10s 检查一次，只要业务没执行完，就续期到 30s347，所以不用担心业务太长锁过期。
 
 ```java
 // org/redisson/RedissonLock.java#lock
